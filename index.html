@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="de"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#17262E">
+<title>Gitarren-Notizbuch</title>
+<style>
+:root{--bg:#E8EDEE;--ink:#17262E;--teal:#1D6F6A;--brass:#B5832B;--red:#A8402B;--card:#F8FAFA;--line:#C5D0D3}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,sans-serif}
+header{background:var(--ink);color:#fff;padding:18px 16px 14px;border-bottom:4px solid var(--brass)}
+h1{margin:0;font:600 24px/1.2 Georgia,"Iowan Old Style",serif}
+header p{margin:4px 0 0;color:#B9C8CD;font-size:14px}
+main{max-width:680px;margin:0 auto;padding:16px}
+#rec{text-align:center;padding:12px 0 6px}
+#recBtn{width:132px;height:132px;border-radius:50%;border:8px double var(--brass);background:var(--ink);color:#fff;font:600 15px Georgia,serif;cursor:pointer}
+#recBtn.on{background:var(--red);border-color:#fff}
+#timer{display:block;margin-top:8px;font-variant-numeric:tabular-nums;min-height:24px}
+.opts{display:flex;gap:16px;justify-content:center;flex-wrap:wrap;margin:8px 0 16px}
+details{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:16px}
+summary{cursor:pointer;font-weight:600}
+details label{display:block;margin-top:10px;font-size:14px}
+input[type=text],input[type=password]{width:100%;padding:9px;border:1px solid var(--line);border-radius:6px;font:inherit;background:#fff}
+.clip{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px;margin-bottom:14px}
+.clip input.name{font:600 18px Georgia,serif;border:0;border-bottom:1px dashed var(--line);background:transparent;padding:2px 0}
+.meta{font-size:13px;color:#51666E;margin:2px 0 8px}
+audio{width:100%;margin-bottom:8px}
+.btns{display:flex;flex-wrap:wrap;gap:8px}
+button.b{padding:9px 12px;border-radius:6px;border:1px solid var(--teal);background:#fff;color:var(--teal);font:inherit;font-size:14px;cursor:pointer}
+button.b.p{background:var(--teal);color:#fff}
+button.b.d{border-color:var(--red);color:var(--red)}
+button:focus-visible,input:focus-visible,summary:focus-visible{outline:3px solid var(--brass);outline-offset:2px}
+pre{background:#fff;border:1px solid var(--line);border-radius:6px;padding:10px;overflow-x:auto;font:13px/1.35 ui-monospace,Menlo,monospace;margin:10px 0 0}
+.ai{white-space:pre-wrap;margin-top:10px;padding:10px;border-left:4px solid var(--brass);background:#fff;font-size:15px}
+#msg{min-height:22px;text-align:center;color:var(--red);font-size:14px;margin-bottom:8px}
+.empty{text-align:center;color:#51666E;padding:24px}
+</style></head><body>
+<header><h1>Gitarren-Notizbuch</h1><p>Aufnehmen, speichern, analysieren, nachspielen.</p></header>
+<main>
+<section id="rec">
+  <button id="recBtn" type="button">Aufnahme starten</button>
+  <span id="timer"></span>
+</section>
+<div id="msg" role="status"></div>
+<div class="opts">
+  <label><input type="checkbox" id="tabOpt"> Tabs erzeugen</label>
+</div>
+<details>
+  <summary>Gemini-Zugang</summary>
+  <label>API-Key (bleibt nur in diesem Browser)<input type="password" id="gkey" autocomplete="off"></label>
+  <label>Modell<input type="text" id="gmodel" placeholder="gemini-2.5-flash"></label>
+</details>
+<section id="list"></section>
+</main>
+<script>
+const $=s=>document.querySelector(s), SR=22050;
+const NAMES=["C","C♯","D","D♯","E","F","F♯","G","G♯","A","B","H"];
+const nn=m=>NAMES[m%12]+(Math.floor(m/12)-1);
+const msg=t=>$('#msg').textContent=t||'';
+const ls={get:k=>{try{return localStorage.getItem(k)}catch(e){return null}},set:(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}}};
+
+/* Speicher (IndexedDB) */
+const dbp=new Promise((res,rej)=>{const r=indexedDB.open('gitarre',1);r.onupgradeneeded=()=>r.result.createObjectStore('clips',{keyPath:'id'});r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)});
+const tx=async(m,f)=>{const d=await dbp;return new Promise((res,rej)=>{const t=d.transaction('clips',m);const o=f(t.objectStore('clips'));t.oncomplete=()=>res(o&&o.result);t.onerror=()=>rej(t.error)})};
+const getAll=()=>tx('readonly',s=>s.getAll()), put=c=>tx('readwrite',s=>s.put(c)), del=id=>tx('readwrite',s=>s.delete(id));
+
+/* Aufnahme */
+let mr,chunks,t0,tick;
+const setBtn=on=>{$('#recBtn').classList.toggle('on',on);$('#recBtn').textContent=on?'Stopp':'Aufnahme starten';if(!on)$('#timer').textContent=''};
+$('#recBtn').onclick=async()=>{
+  if(mr&&mr.state==='recording'){mr.stop();return}
+  try{
+    const st=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}});
+    mr=new MediaRecorder(st);chunks=[];msg('');
+    mr.ondataavailable=e=>chunks.push(e.data);
+    mr.onstop=async()=>{clearInterval(tick);st.getTracks().forEach(t=>t.stop());setBtn(false);await finish(new Blob(chunks,{type:mr.mimeType}))};
+    mr.start();t0=Date.now();setBtn(true);
+    tick=setInterval(()=>{const s=(Date.now()-t0)/1000;$('#timer').textContent=s.toFixed(0)+' s (max. 60 s)';if(s>=60)mr.stop()},250);
+  }catch(e){msg('Kein Mikrofonzugang: '+e.message+' (Seite muss über https oder localhost laufen.)')}
+};
+async function finish(blob){
+  const c={id:Date.now(),name:'Stück vom '+new Date().toLocaleString('de-DE',{dateStyle:'short',timeStyle:'short'}),blob,notes:null,ai:null};
+  await put(c);await render();await analyze(c.id);
+}
+
+/* Audio dekodieren */
+async function decode(blob){const ctx=new(window.AudioContext||window.webkitAudioContext)({sampleRate:SR});const b=await ctx.decodeAudioData(await blob.arrayBuffer());ctx.close();return b.getChannelData(0)}
+
+/* Tonhöhenerkennung (YIN, einstimmig) */
+function yin(x,o,W){
+  const tmax=Math.floor(SR/70),tmin=Math.floor(SR/1000),d=new Float32Array(tmax+2),n=new Float32Array(tmax+2);
+  for(let t=1;t<=tmax;t++){let s=0;for(let i=0;i<W;i++){const v=x[o+i]-x[o+i+t];s+=v*v}d[t]=s}
+  let run=0;n[0]=1;
+  for(let t=1;t<=tmax;t++){run+=d[t];n[t]=run?d[t]*t/run:1}
+  for(let t=tmin;t<tmax;t++){
+    if(n[t]<0.15){
+      while(t+1<tmax&&n[t+1]<n[t])t++;
+      const a=n[t-1],b=n[t],c=n[t+1],den=a-2*b+c,tt=den?t+(a-c)/(2*den):t;
+      return SR/tt;
+    }
+  }
+  return null;
+}
+function detect(x){
+  const W=1024,H=512,fr=[];
+  for(let o=0;o+W+320<x.length;o+=H){
+    let r=0;for(let i=0;i<W;i++)r+=x[o+i]*x[o+i];r=Math.sqrt(r/W);
+    let m=null;if(r>0.01){const f=yin(x,o,W);if(f)m=Math.round(69+12*Math.log2(f/440))}
+    fr.push(m);
+  }
+  const out=[];let cur=null,gap=0;
+  fr.forEach((m,i)=>{
+    if(m!==null&&cur&&m===cur.m){cur.e=i;gap=0;return}
+    if(cur&&m===null&&gap<2){gap++;return}
+    if(cur){out.push(cur);cur=null}
+    gap=0;if(m!==null)cur={m,s:i,e:i};
+  });
+  if(cur)out.push(cur);
+  return out.filter(n=>n.e-n.s>=2&&n.m>=40&&n.m<=88).map(n=>({m:n.m,t:+(n.s*H/SR).toFixed(2),d:+((n.e-n.s+1)*H/SR).toFixed(2)}));
+}
+
+/* Tabs (Standardstimmung, Töne -> Saite/Bund) */
+const OPEN=[64,59,55,50,45,40],LAB=['e','B','G','D','A','E'];
+function makeTab(ns){
+  let prev=null;
+  const cols=ns.map(n=>{
+    let best=null;
+    OPEN.forEach((o,s)=>{const f=n.m-o;if(f>=0&&f<=15){const sc=prev===null?f:Math.abs(f-prev)+f*0.3;if(!best||sc<best.sc)best={s,f,sc}}});
+    if(best)prev=best.f;return best;
+  });
+  let out='';
+  for(let i=0;i<cols.length;i+=10){
+    const part=cols.slice(i,i+10);
+    out+=LAB.map((l,s)=>l+'|'+part.map(c=>c&&c.s===s?('-'+c.f).padEnd(3,'-'):'---').join('')+'|').join('\n')+'\n\n';
+  }
+  return out.trim();
+}
+
+async function analyze(id){
+  const c=(await getAll()).find(k=>k.id===id);if(!c)return;
+  msg('Erkenne Töne …');
+  try{const x=await decode(c.blob);c.notes=detect(x);await put(c);msg(c.notes.length?'':'Keine Töne erkannt (zu leise oder mehrstimmig?).')}
+  catch(e){msg('Analyse fehlgeschlagen: '+e.message)}
+  await render();
+}
+
+/* Gemini */
+function toWav(x){
+  const b=new ArrayBuffer(44+x.length*2),v=new DataView(b),w=(o,s)=>[...s].forEach((c,i)=>v.setUint8(o+i,c.charCodeAt(0)));
+  w(0,'RIFF');v.setUint32(4,36+x.length*2,true);w(8,'WAVEfmt ');v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,1,true);
+  v.setUint32(24,SR,true);v.setUint32(28,SR*2,true);v.setUint16(32,2,true);v.setUint16(34,16,true);w(36,'data');v.setUint32(40,x.length*2,true);
+  x.forEach((s,i)=>v.setInt16(44+i*2,Math.max(-1,Math.min(1,s))*32767,true));return b;
+}
+async function askGemini(id){
+  const key=ls.get('gkey');if(!key){msg('Bitte zuerst den Gemini-API-Key eintragen.');return}
+  const c=(await getAll()).find(k=>k.id===id);if(!c)return;
+  msg('Gemini analysiert …');
+  try{
+    const x=await decode(c.blob);
+    const b64=await new Promise(r=>{const f=new FileReader();f.onload=()=>r(f.result.split(',')[1]);f.readAsDataURL(new Blob([toWav(x)],{type:'audio/wav'}))});
+    const found=(c.notes||[]).map(n=>nn(n.m)).join(' ')||'keine';
+    const prompt=`Du bist Gitarrenlehrer. Analysiere diese kurze Gitarrenaufnahme und antworte auf Deutsch, knapp, in diesen Abschnitten: Tonart und Skala; Tempo und Rhythmus; Akkorde oder Töne; Spieltechniken (Hammer-on, Pull-off, Bending, Slide, Vibrato, Anschlag); Besonderheiten; Tipps zum Nachspielen (Lage, Griffe, Stimmung). Automatisch erkannte Töne (können falsch sein, korrigiere sie bei Bedarf): ${found}`;
+    const model=ls.get('gmodel')||'gemini-2.5-flash';
+    const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':key},body:JSON.stringify({contents:[{parts:[{text:prompt},{inline_data:{mime_type:'audio/wav',data:b64}}]}]})});
+    const j=await r.json();
+    if(!r.ok)throw new Error(j.error&&j.error.message||r.status);
+    c.ai=j.candidates[0].content.parts.map(p=>p.text||'').join('');
+    await put(c);msg('');
+  }catch(e){msg('Gemini-Fehler: '+e.message)}
+  await render();
+}
+
+/* Anzeige */
+const esc=s=>s.replace(/[&<>]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[m]));
+const urls=[];
+async function render(){
+  urls.splice(0).forEach(URL.revokeObjectURL);
+  const clips=(await getAll()).sort((a,b)=>b.id-a.id),showTab=$('#tabOpt').checked;
+  $('#list').innerHTML=clips.length?clips.map(c=>{
+    const u=URL.createObjectURL(c.blob);urls.push(u);
+    const notes=c.notes?(c.notes.length?c.notes.map(n=>nn(n.m)).join(' '):'Keine Töne erkannt'):'Noch nicht analysiert';
+    return `<article class="clip" data-id="${c.id}">
+      <input class="name" type="text" value="${esc(c.name).replace(/"/g,'&quot;')}" aria-label="Titel">
+      <div class="meta">${new Date(c.id).toLocaleString('de-DE')}</div>
+      <audio controls src="${u}"></audio>
+      <div class="btns">
+        <button class="b" data-a="notes">Töne neu erkennen</button>
+        <button class="b p" data-a="ai">Mit Gemini analysieren</button>
+        <button class="b" data-a="copy">Kopieren</button>
+        <button class="b d" data-a="del">Löschen</button>
+      </div>
+      <pre>${esc(notes)}</pre>
+      ${showTab&&c.notes&&c.notes.length?`<pre>${esc(makeTab(c.notes))}</pre>`:''}
+      ${c.ai?`<div class="ai">${esc(c.ai)}</div>`:''}
+    </article>`}).join(''):'<p class="empty">Noch keine Aufnahmen. Tippe auf den Knopf und spiel los.</p>';
+}
+$('#list').addEventListener('click',async e=>{
+  const b=e.target.closest('button');if(!b)return;
+  const id=+b.closest('.clip').dataset.id,a=b.dataset.a;
+  if(a==='notes')analyze(id);
+  else if(a==='ai')askGemini(id);
+  else if(a==='del'){if(confirm('Aufnahme löschen?')){await del(id);render()}}
+  else if(a==='copy'){
+    const c=(await getAll()).find(k=>k.id===id);
+    const t=[c.name,(c.notes||[]).map(n=>nn(n.m)).join(' '),$('#tabOpt').checked&&c.notes?makeTab(c.notes):'',c.ai||''].filter(Boolean).join('\n\n');
+    try{await navigator.clipboard.writeText(t);msg('Kopiert.')}catch(err){msg('Kopieren nicht möglich.')}
+  }
+});
+$('#list').addEventListener('change',async e=>{
+  if(!e.target.classList.contains('name'))return;
+  const id=+e.target.closest('.clip').dataset.id,c=(await getAll()).find(k=>k.id===id);c.name=e.target.value;await put(c);
+});
+$('#tabOpt').checked=ls.get('tabs')!=='0';
+$('#tabOpt').onchange=()=>{ls.set('tabs',$('#tabOpt').checked?'1':'0');render()};
+$('#gkey').value=ls.get('gkey')||'';$('#gkey').onchange=()=>ls.set('gkey',$('#gkey').value.trim());
+$('#gmodel').value=ls.get('gmodel')||'';$('#gmodel').onchange=()=>ls.set('gmodel',$('#gmodel').value.trim());
+render();
+</script></body></html>
