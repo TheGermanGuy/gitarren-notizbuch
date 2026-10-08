@@ -47,6 +47,9 @@ h3{margin:14px 0 6px;font:600 16px Georgia,serif}
 .dot,.tb{fill:var(--teal)}.tn,.fn{font:700 10px system-ui,sans-serif;fill:#fff}
 .du{fill:var(--brass)}
 ol,ul{margin:0;padding-left:22px}li{margin-bottom:4px}
+.nt{cursor:pointer;outline:none}
+.nt:hover .tb,.nt.on .tb,.nt:focus-visible .tb{fill:var(--brass)}
+.nt:focus-visible rect:first-child{stroke:var(--brass);stroke-width:2}
 </style></head><body>
 <header><h1>Gitarren-Notizbuch</h1><p>Aufnehmen, speichern, analysieren, nachspielen.</p></header>
 <main>
@@ -57,6 +60,7 @@ ol,ul{margin:0;padding-left:22px}li{margin-bottom:4px}
 <div id="msg" role="status"></div>
 <div class="opts">
   <label><input type="checkbox" id="tabOpt"> Tabs erzeugen</label>
+  <label>Antippen spielt: <select id="playMode"><option value="syn">Referenzton</option><option value="orig">Original-Ausschnitt</option></select></label>
 </div>
 <details>
   <summary>Gemini-Zugang</summary>
@@ -198,6 +202,28 @@ Automatisch erkannte Töne (einstimmig, können falsch sein, korrigiere sie bei 
   await render();
 }
 
+/* Wiedergabe */
+let CL={},ac;const PCM={};
+const audioCtx=()=>{if(!ac)ac=new(window.AudioContext||window.webkitAudioContext)();if(ac.state==='suspended')ac.resume();return ac};
+function pluck(m){
+  const c=audioCtx(),t=c.currentTime,f=440*2**((m-69)/12),o=c.createOscillator(),fl=c.createBiquadFilter(),g=c.createGain();
+  o.type='sawtooth';o.frequency.value=f;fl.type='lowpass';
+  fl.frequency.setValueAtTime(Math.min(f*8,8000),t);fl.frequency.exponentialRampToValueAtTime(f*1.5,t+0.7);
+  g.gain.setValueAtTime(0.0001,t);g.gain.exponentialRampToValueAtTime(0.5,t+0.01);g.gain.exponentialRampToValueAtTime(0.0001,t+1.6);
+  o.connect(fl);fl.connect(g);g.connect(c.destination);o.start(t);o.stop(t+1.7);
+}
+async function playOrig(c,n){
+  const ctx=audioCtx();if(!PCM[c.id])PCM[c.id]=await decode(c.blob);
+  const x=PCM[c.id],st=Math.max(0,Math.floor((n.t-0.03)*SR)),en=Math.min(x.length,Math.floor((n.t+Math.max(n.d,0.25)+0.1)*SR));
+  const b=ctx.createBuffer(1,en-st,SR);b.copyToChannel(x.slice(st,en),0);
+  const src=ctx.createBufferSource();src.buffer=b;src.connect(ctx.destination);src.start();
+}
+async function playNote(g){
+  const c=CL[+g.closest('.clip').dataset.id],n=c&&c.notes&&c.notes[+g.dataset.i];if(!n)return;
+  g.classList.add('on');setTimeout(()=>g.classList.remove('on'),350);
+  try{if($('#playMode').value==='orig')await playOrig(c,n);else pluck(n.m)}catch(e){msg('Wiedergabe fehlgeschlagen: '+e.message)}
+}
+
 /* Visuelle Darstellung */
 function chordSvg(c){
   const f=c.bunde||[],fi=c.finger||[],pos=f.filter(n=>n>0),max=Math.max(0,...pos),min=pos.length?Math.min(...pos):1,base=max>4?min:1;
@@ -223,9 +249,10 @@ function tabSvg(ns){
     LAB.forEach((l,k)=>{const y=12+k*15;s+=`<text x="5" y="${y+4}" class="mk">${l}</text><line x1="${L}" y1="${y}" x2="${w}" y2="${y}" class="gl"/>`});
     part.forEach((c,j)=>{
       const x=L+j*cw+cw/2,n=ns[i+j];
+      s+=`<g class="nt" data-i="${i+j}" tabindex="0" role="button" aria-label="Ton ${nn(n.m)} abspielen"><rect x="${x-cw/2}" y="0" width="${cw}" height="116" fill="transparent"/>`;
       if(c){const y=12+c.s*15;s+=`<circle cx="${x}" cy="${y}" r="7.2" class="tb"/><text x="${x}" y="${y+3.6}" text-anchor="middle" class="tn">${c.f}</text>`}
       const bw=Math.min(cw-6,Math.max(6,n.d*40));
-      s+=`<rect x="${x-bw/2}" y="98" width="${bw}" height="3" rx="1.5" class="du"/><text x="${x}" y="112" text-anchor="middle" class="mk">${nn(n.m)}</text>`;
+      s+=`<rect x="${x-bw/2}" y="98" width="${bw}" height="3" rx="1.5" class="du"/><text x="${x}" y="112" text-anchor="middle" class="mk">${nn(n.m)}</text></g>`;
     });
     rows.push(s+'</svg>');
   }
@@ -251,6 +278,7 @@ const urls=[];
 async function render(){
   urls.splice(0).forEach(URL.revokeObjectURL);
   const clips=(await getAll()).sort((a,b)=>b.id-a.id),showTab=$('#tabOpt').checked;
+  CL={};clips.forEach(c=>CL[c.id]=c);
   $('#list').innerHTML=clips.length?clips.map(c=>{
     const u=URL.createObjectURL(c.blob);urls.push(u);
     const notes=c.notes?(c.notes.length?c.notes.map(n=>nn(n.m)).join(' '):'Keine Töne erkannt'):'Noch nicht analysiert';
@@ -265,12 +293,14 @@ async function render(){
         <button class="b d" data-a="del">Löschen</button>
       </div>
       ${aiParts(c.ai)[0]}
-      ${showTab&&c.notes&&c.notes.length?`<h3>Tabulatur</h3><p class="hint">Zahl im Kreis = Bund, Zeile = Saite (unten tiefes E). Balken unter den Linien = Tonlänge.</p>${tabSvg(c.notes)}`:''}
+      ${showTab&&c.notes&&c.notes.length?`<h3>Tabulatur</h3><p class="hint">Zahl im Kreis = Bund, Zeile = Saite (unten tiefes E). Balken unter den Linien = Tonlänge. Tippe auf einen Ton, um ihn zu hören.</p>${tabSvg(c.notes)}`:''}
       ${aiParts(c.ai)[1]}
       <div class="meta">Erkannte Töne: ${esc(notes)}</div>
     </article>`}).join(''):'<p class="empty">Noch keine Aufnahmen. Tippe auf den Knopf und spiel los.</p>';
 }
+$('#list').addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&e.target.classList&&e.target.classList.contains('nt')){e.preventDefault();playNote(e.target)}});
 $('#list').addEventListener('click',async e=>{
+  const g=e.target.closest('.nt');if(g){playNote(g);return}
   const b=e.target.closest('button');if(!b)return;
   const id=+b.closest('.clip').dataset.id,a=b.dataset.a;
   if(a==='notes')analyze(id);
@@ -287,6 +317,7 @@ $('#list').addEventListener('change',async e=>{
   const id=+e.target.closest('.clip').dataset.id,c=(await getAll()).find(k=>k.id===id);c.name=e.target.value;c.renamed=true;await put(c);
 });
 $('#tabOpt').checked=ls.get('tabs')!=='0';
+$('#playMode').value=ls.get('pm')||'syn';$('#playMode').onchange=()=>ls.set('pm',$('#playMode').value);
 $('#tabOpt').onchange=()=>{ls.set('tabs',$('#tabOpt').checked?'1':'0');render()};
 $('#gkey').value=ls.get('gkey')||'';$('#gkey').onchange=()=>ls.set('gkey',$('#gkey').value.trim());
 $('#gmodel').value=ls.get('gmodel')||'';$('#gmodel').onchange=()=>ls.set('gmodel',$('#gmodel').value.trim());
