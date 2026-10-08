@@ -99,7 +99,7 @@ details label {
   margin-top: 10px;
   font-size: 14px;
 }
-input[type=text], input[type=password], select {
+input[type=text], input[type=password], select, input[type=range] {
   width: 100%;
   padding: 9px;
   border: 1px solid var(--line);
@@ -107,6 +107,7 @@ input[type=text], input[type=password], select {
   font: inherit;
   background: #fff;
 }
+input[type=range] { padding: 0; }
 .clip {
   background: var(--card);
   border: 1px solid var(--line);
@@ -169,15 +170,6 @@ summary:focus-visible,
 select:focus-visible {
   outline: 3px solid var(--brass);
   outline-offset: 2px;
-}
-pre {
-  background: #fff;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 10px;
-  overflow-x: auto;
-  font: 13px/1.35 ui-monospace, Menlo, monospace;
-  margin: 10px 0 0;
 }
 .ai {
   white-space: pre-wrap;
@@ -263,7 +255,6 @@ li { margin-bottom: 4px; }
   stroke: var(--brass);
   stroke-width: 2;
 }
-/* Toast / Undo */
 #toast {
   position: fixed;
   bottom: calc(20px + var(--safe-bottom));
@@ -292,7 +283,6 @@ li { margin-bottom: 4px; }
   font: 600 13px system-ui, sans-serif;
   cursor: pointer;
 }
-/* Offline banner */
 #offline {
   display: none;
   background: var(--red);
@@ -302,7 +292,6 @@ li { margin-bottom: 4px; }
   font-size: 13px;
 }
 #offline.show { display: block; }
-/* Progress bar */
 .prog {
   height: 3px;
   background: var(--line);
@@ -358,6 +347,18 @@ li { margin-bottom: 4px; }
     </label>
     <p class="hint" style="margin-top:8px">Der Key wird nur lokal gespeichert und ausschließlich an Google gesendet, wenn du „Neu analysieren“ auslösest.</p>
   </details>
+  <details>
+    <summary>Erkennungs-Einstellungen</summary>
+    <label>Empfindlichkeit (niedriger = strenger)
+      <input type="range" id="sens" min="5" max="25" value="12" step="1">
+      <span id="sensVal">0.12</span>
+    </label>
+    <label>Min. Notendauer (ms)
+      <input type="range" id="minDur" min="40" max="200" value="80" step="10">
+      <span id="minDurVal">80</span>
+    </label>
+    <p class="hint" style="margin-top:8px">Diese Werte beeinflussen nur die lokale Tonhöhenerkennung. Nach Änderung „Töne neu erkennen“ drücken.</p>
+  </details>
   <section id="list"></section>
 </main>
 <div id="toast" role="status" aria-live="polite"></div>
@@ -367,21 +368,18 @@ li { margin-bottom: 4px; }
 "use strict";
 
 /* ========== Konstanten ========== */
-const SR = 22050;                 // interne Analyse-Sample-Rate
-const GEMINI_SR = 16000;          // für API-Upload
+const SR = 22050;
+const GEMINI_SR = 16000;
 const MAX_REC_S = 60;
-const YIN_THRESH = 0.15;
-const MIN_RMS = 0.008;
-const FRAME_W = 1024;
-const FRAME_H = 512;
-const MIN_NOTE_FRAMES = 2;
-const MERGE_GAP_S = 0.09;
-const SOFT_DELETE_MS = 8000;
+const FRAME_W = 2048;
+const FRAME_H = 256;
 const NAMES = ["C","C♯","D","D♯","E","F","F♯","G","G♯","A","B","H"];
 const OPEN = [64, 59, 55, 50, 45, 40];
 const LAB = ["e", "B", "G", "D", "A", "E"];
+const FMIN = 70;
+const FMAX = 1200;
+const SOFT_DELETE_MS = 8000;
 
-/* ========== Hilfsfunktionen ========== */
 const $ = s => document.querySelector(s);
 const nn = m => NAMES[((m % 12) + 12) % 12] + (Math.floor(m / 12) - 1);
 const esc = s => String(s).replace(/[&<>"']/g, m =>
@@ -424,7 +422,7 @@ const put = c => tx("readwrite", s => s.put(c));
 const del = id => tx("readwrite", s => s.delete(id));
 
 /* ========== PCM-Cache ========== */
-const PCM = new Map(); // id -> Float32Array (bei SR)
+const PCM = new Map();
 
 async function getPCM(c) {
   if (PCM.has(c.id)) return PCM.get(c.id);
@@ -437,7 +435,6 @@ async function decodeBlob(blob, targetSR) {
   try {
     const buf = await ctx.decodeAudioData(await blob.arrayBuffer());
     const ch = buf.getChannelData(0);
-    // Falls Browser andere Rate liefert, linear resamplen
     if (Math.abs(buf.sampleRate - targetSR) < 1) return ch.slice(0);
     const ratio = buf.sampleRate / targetSR;
     const outLen = Math.floor(ch.length / ratio);
@@ -454,121 +451,265 @@ async function decodeBlob(blob, targetSR) {
   }
 }
 
-/* ========== Web Worker für Pitch-Detection ========== */
+/* ========== Web Worker – stark verbesserte Erkennung ========== */
 const workerCode = `
 const SR = ${SR};
 const FRAME_W = ${FRAME_W};
 const FRAME_H = ${FRAME_H};
-const YIN_THRESH = ${YIN_THRESH};
-const MIN_RMS = ${MIN_RMS};
-const MIN_NOTE_FRAMES = ${MIN_NOTE_FRAMES};
-const MERGE_GAP_S = ${MERGE_GAP_S};
+const FMIN = ${FMIN};
+const FMAX = ${FMAX};
 
-function yin(x, o, W, dynThresh) {
-  const tmax = Math.floor(SR / 70);
-  const tmin = Math.floor(SR / 1000);
-  const d = new Float32Array(tmax + 2);
-  const n = new Float32Array(tmax + 2);
-  for (let t = 1; t <= tmax; t++) {
-    let s = 0;
-    for (let i = 0; i < W; i++) {
-      const v = x[o + i] - x[o + i + t];
-      s += v * v;
-    }
-    d[t] = s;
-  }
-  let run = 0;
-  n[0] = 1;
-  for (let t = 1; t <= tmax; t++) {
-    run += d[t];
-    n[t] = run ? (d[t] * t) / run : 1;
-  }
-  const thresh = dynThresh || YIN_THRESH;
-  for (let t = tmin; t < tmax; t++) {
-    if (n[t] < thresh) {
-      while (t + 1 < tmax && n[t + 1] < n[t]) t++;
-      const a = n[t - 1], b = n[t], c = n[t + 1];
-      const den = a - 2 * b + c;
-      const tt = den ? t + (a - c) / (2 * den) : t;
-      return SR / tt;
-    }
-  }
-  return null;
+const hann = new Float32Array(FRAME_W);
+for (let i = 0; i < FRAME_W; i++) {
+  hann[i] = 0.5 * (1 - Math.cos(2 * Math.PI * i / (FRAME_W - 1)));
 }
 
-function detect(x) {
-  // Dynamischer Noise-Floor aus den leisesten 20 % der Frames
-  const energies = [];
-  for (let o = 0; o + FRAME_W + 320 < x.length; o += FRAME_H) {
-    let r = 0;
-    for (let i = 0; i < FRAME_W; i++) r += x[o + i] * x[o + i];
-    energies.push(Math.sqrt(r / FRAME_W));
+function highpass(x) {
+  const out = new Float32Array(x.length);
+  const a = 0.97;
+  let prevX = 0, prevY = 0;
+  for (let i = 0; i < x.length; i++) {
+    const y = a * (prevY + x[i] - prevX);
+    out[i] = y;
+    prevX = x[i];
+    prevY = y;
   }
-  energies.sort((a, b) => a - b);
-  const noiseFloor = energies[Math.floor(energies.length * 0.2)] || 0;
-  const rmsThresh = Math.max(MIN_RMS, noiseFloor * 3.5);
+  return out;
+}
 
-  const fr = [];
-  for (let o = 0; o + FRAME_W + 320 < x.length; o += FRAME_H) {
-    let r = 0;
-    for (let i = 0; i < FRAME_W; i++) r += x[o + i] * x[o + i];
-    r = Math.sqrt(r / FRAME_W);
-    let m = null;
-    if (r > rmsThresh) {
-      const f = yin(x, o, FRAME_W, YIN_THRESH);
-      if (f) m = Math.round(69 + 12 * Math.log2(f / 440));
+function normalize(x) {
+  let max = 0;
+  for (let i = 0; i < x.length; i++) {
+    const v = Math.abs(x[i]);
+    if (v > max) max = v;
+  }
+  if (max < 1e-6) return x;
+  const g = 0.9 / max;
+  const out = new Float32Array(x.length);
+  for (let i = 0; i < x.length; i++) out[i] = x[i] * g;
+  return out;
+}
+
+function yinFrame(x, o, W, thresh, prevF) {
+  const tauMin = Math.max(2, Math.floor(SR / FMAX));
+  const tauMax = Math.min(Math.floor(W / 2), Math.floor(SR / FMIN));
+  if (tauMax <= tauMin + 2) return null;
+
+  const d = new Float32Array(tauMax + 1);
+  for (let tau = 1; tau <= tauMax; tau++) {
+    let sum = 0;
+    for (let i = 0; i < W - tau; i++) {
+      const v = x[o + i] * hann[i] - x[o + i + tau] * hann[i + tau];
+      sum += v * v;
     }
-    fr.push(m);
+    d[tau] = sum;
   }
 
-  // Roh-Noten extrahieren
-  const raw = [];
-  let cur = null, gap = 0;
-  fr.forEach((m, i) => {
+  const cmnd = new Float32Array(tauMax + 1);
+  cmnd[0] = 1;
+  let run = 0;
+  for (let tau = 1; tau <= tauMax; tau++) {
+    run += d[tau];
+    cmnd[tau] = run > 0 ? (d[tau] * tau) / run : 1;
+  }
+
+  let bestTau = -1;
+  let bestVal = 1;
+  for (let tau = tauMin; tau < tauMax; tau++) {
+    if (cmnd[tau] < thresh) {
+      while (tau + 1 < tauMax && cmnd[tau + 1] < cmnd[tau]) tau++;
+      let score = cmnd[tau];
+      if (prevF > 0) {
+        const f = SR / tau;
+        const semitones = Math.abs(12 * Math.log2(f / prevF));
+        if (semitones < 1.5) score *= 0.7;
+        else if (semitones < 3) score *= 0.85;
+      }
+      if (score < bestVal) {
+        bestVal = score;
+        bestTau = tau;
+      }
+    }
+  }
+  if (bestTau < 0) return null;
+
+  const tau = bestTau;
+  const a = cmnd[tau - 1] || cmnd[tau];
+  const b = cmnd[tau];
+  const c = cmnd[tau + 1] || cmnd[tau];
+  const den = a - 2 * b + c;
+  const shift = den !== 0 ? (a - c) / (2 * den) : 0;
+  const refined = tau + shift;
+  if (refined < tauMin || refined > tauMax) return null;
+
+  const freq = SR / refined;
+  if (freq < FMIN || freq > FMAX) return null;
+
+  const conf = Math.max(0, Math.min(1, 1 - bestVal));
+  return { freq, conf };
+}
+
+function medianFilter(arr, win) {
+  const half = Math.floor(win / 2);
+  const out = new Array(arr.length);
+  for (let i = 0; i < arr.length; i++) {
+    const slice = [];
+    for (let j = Math.max(0, i - half); j <= Math.min(arr.length - 1, i + half); j++) {
+      if (arr[j] !== null) slice.push(arr[j]);
+    }
+    if (!slice.length) { out[i] = null; continue; }
+    slice.sort((a, b) => a - b);
+    out[i] = slice[Math.floor(slice.length / 2)];
+  }
+  return out;
+}
+
+function correctOctave(midi, prevMidi) {
+  if (prevMidi === null || prevMidi === undefined) return midi;
+  let best = midi;
+  let bestDist = Math.abs(midi - prevMidi);
+  for (const off of [-12, 12, -24, 24]) {
+    const cand = midi + off;
+    if (cand < 40 || cand > 88) continue;
+    const d = Math.abs(cand - prevMidi);
+    if (d < bestDist) {
+      bestDist = d;
+      best = cand;
+    }
+  }
+  return best;
+}
+
+function detect(x, opts) {
+  const thresh = opts.thresh || 0.12;
+  const minDurS = (opts.minDurMs || 80) / 1000;
+  const minFrames = Math.max(2, Math.round(minDurS / (FRAME_H / SR)));
+
+  let sig = highpass(x);
+  sig = normalize(sig);
+
+  const pitches = [];
+  const confs = [];
+  const energies = [];
+  let prevF = 0;
+
+  for (let o = 0; o + FRAME_W < sig.length; o += FRAME_H) {
+    let e = 0;
+    for (let i = 0; i < FRAME_W; i++) e += sig[o + i] * sig[o + i];
+    e = Math.sqrt(e / FRAME_W);
+    energies.push(e);
+
+    if (e < 0.015) {
+      pitches.push(null);
+      confs.push(0);
+      prevF = 0;
+      continue;
+    }
+
+    const res = yinFrame(sig, o, FRAME_W, thresh, prevF);
+    if (res && res.conf > 0.35) {
+      pitches.push(res.freq);
+      confs.push(res.conf);
+      prevF = res.freq;
+    } else {
+      pitches.push(null);
+      confs.push(0);
+    }
+  }
+
+  const sortedE = energies.filter(e => e > 0).sort((a, b) => a - b);
+  const noise = sortedE.length ? sortedE[Math.floor(sortedE.length * 0.15)] : 0.01;
+  const energyFloor = Math.max(0.012, noise * 2.8);
+
+  for (let i = 0; i < pitches.length; i++) {
+    if (energies[i] < energyFloor) {
+      pitches[i] = null;
+      confs[i] = 0;
+    }
+  }
+
+  const midiRaw = pitches.map(f => f ? 69 + 12 * Math.log2(f / 440) : null);
+  const midiMed = medianFilter(midiRaw, 5);
+
+  const midiSmooth = [];
+  let lastValid = null;
+  for (let i = 0; i < midiMed.length; i++) {
+    let m = midiMed[i];
+    if (m === null) {
+      midiSmooth.push(null);
+      continue;
+    }
+    m = Math.round(m);
+    m = correctOctave(m, lastValid);
+    if (lastValid !== null && Math.abs(m - lastValid) > 7 && confs[i] < 0.6) {
+      midiSmooth.push(null);
+      continue;
+    }
+    midiSmooth.push(m);
+    lastValid = m;
+  }
+
+  const notes = [];
+  let cur = null;
+  let gap = 0;
+  const maxGap = 3;
+
+  for (let i = 0; i < midiSmooth.length; i++) {
+    const m = midiSmooth[i];
     if (m !== null && cur && m === cur.m) {
       cur.e = i;
+      cur.confSum += confs[i];
+      cur.frames++;
       gap = 0;
-      return;
+      continue;
     }
-    if (cur && m === null && gap < 2) {
+    if (cur && m === null && gap < maxGap) {
       gap++;
-      return;
+      continue;
     }
     if (cur) {
-      raw.push(cur);
+      if (cur.frames >= minFrames) {
+        notes.push({
+          m: cur.m,
+          t: +(cur.s * FRAME_H / SR).toFixed(3),
+          d: +((cur.e - cur.s + 1) * FRAME_H / SR).toFixed(3),
+          conf: +(cur.confSum / cur.frames).toFixed(2)
+        });
+      }
       cur = null;
     }
     gap = 0;
-    if (m !== null) cur = { m, s: i, e: i };
-  });
-  if (cur) raw.push(cur);
+    if (m !== null) {
+      cur = { m, s: i, e: i, confSum: confs[i], frames: 1 };
+    }
+  }
+  if (cur && cur.frames >= minFrames) {
+    notes.push({
+      m: cur.m,
+      t: +(cur.s * FRAME_H / SR).toFixed(3),
+      d: +((cur.e - cur.s + 1) * FRAME_H / SR).toFixed(3),
+      conf: +(cur.confSum / cur.frames).toFixed(2)
+    });
+  }
 
-  // Post-Processing: kurze entfernen, gleiche Noten zusammenführen
-  let notes = raw
-    .filter(n => n.e - n.s >= MIN_NOTE_FRAMES && n.m >= 40 && n.m <= 88)
-    .map(n => ({
-      m: n.m,
-      t: +(n.s * FRAME_H / SR).toFixed(3),
-      d: +((n.e - n.s + 1) * FRAME_H / SR).toFixed(3)
-    }));
-
-  // Benachbarte gleiche Töne mit kleiner Lücke mergen
   const merged = [];
   for (const n of notes) {
     const last = merged[merged.length - 1];
-    if (last && last.m === n.m && n.t - (last.t + last.d) < MERGE_GAP_S) {
+    if (last && last.m === n.m && n.t - (last.t + last.d) < 0.11) {
       last.d = +(n.t + n.d - last.t).toFixed(3);
+      last.conf = Math.max(last.conf, n.conf);
     } else {
-      merged.push({ ...n });
+      merged.push(Object.assign({}, n));
     }
   }
-  return merged;
+
+  return merged.filter(n => n.m >= 40 && n.m <= 88 && n.d >= minDurS * 0.85);
 }
 
 self.onmessage = function (e) {
   if (e.data.type === "detect") {
     try {
-      const notes = detect(e.data.samples);
+      const notes = detect(e.data.samples, e.data.opts || {});
       self.postMessage({ type: "result", id: e.data.id, notes });
     } catch (err) {
       self.postMessage({ type: "error", id: e.data.id, message: err.message });
@@ -664,15 +805,21 @@ async function finish(blob) {
   else if (!ls.get("gkey")) msg("Bitte zuerst den Gemini-API-Key eintragen, um eine KI-Analyse zu erhalten.", "info");
 }
 
-/* ========== Analyse (Worker) ========== */
-const pendingDetect = new Map(); // id -> resolve
+/* ========== Analyse ========== */
+const pendingDetect = new Map();
+
+function getDetectOpts() {
+  const sens = +($("#sens") && $("#sens").value || 12);
+  const minDur = +($("#minDur") && $("#minDur").value || 80);
+  return { thresh: sens / 100, minDurMs: minDur };
+}
 
 function analyze(id) {
   return new Promise(async (resolve) => {
     const clips = await getAll();
     const c = clips.find(k => k.id === id);
     if (!c || c.deleted) { resolve(); return; }
-    msg("Erkenne Töne …", "progress");
+    msg("Erkenne Töne (verbesserte Engine) …", "progress");
     try {
       const x = await getPCM(c);
       const w = getWorker();
@@ -684,7 +831,13 @@ function analyze(id) {
           pendingDetect.delete(d.id);
           clip.notes = d.notes;
           put(clip).then(() => {
-            msg(d.notes.length ? "" : "Keine Töne erkannt (zu leise oder mehrstimmig?).");
+            const n = d.notes.length;
+            const avgConf = n ? (d.notes.reduce((s, x) => s + (x.conf || 0), 0) / n) : 0;
+            msg(n
+              ? n + " Töne erkannt (Ø Konfidenz " + (avgConf * 100).toFixed(0) + " %)"
+              : "Keine Töne erkannt – Empfindlichkeit erhöhen oder klarer/lauter spielen.",
+              n ? "info" : "");
+            setTimeout(() => { if ($("#msg").textContent.indexOf("Töne erkannt") >= 0) msg(""); }, 3500);
             render().then(res);
           });
         } else if (d.type === "error" && pendingDetect.has(d.id)) {
@@ -694,9 +847,8 @@ function analyze(id) {
           render().then(res);
         }
       };
-      // Transferable für Performance
       const copy = x.slice(0);
-      w.postMessage({ type: "detect", id, samples: copy }, [copy.buffer]);
+      w.postMessage({ type: "detect", id, samples: copy, opts: getDetectOpts() }, [copy.buffer]);
     } catch (e) {
       msg("Analyse fehlgeschlagen: " + e.message);
       resolve();
@@ -704,7 +856,7 @@ function analyze(id) {
   });
 }
 
-/* ========== WAV / Downsample für Gemini ========== */
+/* ========== WAV / Downsample ========== */
 function toWav(samples, sampleRate) {
   const n = samples.length;
   const buf = new ArrayBuffer(44 + n * 2);
@@ -728,7 +880,6 @@ function toWav(samples, sampleRate) {
   }
   return buf;
 }
-
 function downsample(x, fromSR, toSR) {
   if (Math.abs(fromSR - toSR) < 1) return x;
   const ratio = fromSR / toSR;
@@ -742,8 +893,6 @@ function downsample(x, fromSR, toSR) {
   }
   return out;
 }
-
-/* Trim leading/trailing silence for smaller upload */
 function trimSilence(x, sr) {
   const win = Math.floor(sr * 0.02);
   let start = 0, end = x.length;
@@ -761,17 +910,12 @@ function trimSilence(x, sr) {
   return x.subarray(start, end);
 }
 
-/* ========== Gemini mit Retry ========== */
-async function askGemini(id, attempt = 1) {
-  if (!isOnline()) {
-    msg("Offline – Gemini nicht erreichbar.");
-    return;
-  }
+/* ========== Gemini ========== */
+async function askGemini(id, attempt) {
+  attempt = attempt || 1;
+  if (!isOnline()) { msg("Offline – Gemini nicht erreichbar."); return; }
   const key = ls.get("gkey");
-  if (!key) {
-    msg("Bitte zuerst den Gemini-API-Key eintragen.", "info");
-    return;
-  }
+  if (!key) { msg("Bitte zuerst den Gemini-API-Key eintragen.", "info"); return; }
   const clips = await getAll();
   const c = clips.find(k => k.id === id);
   if (!c || c.deleted) return;
@@ -781,7 +925,6 @@ async function askGemini(id, attempt = 1) {
     let x = await getPCM(c);
     x = trimSilence(x, SR);
     x = downsample(x, SR, GEMINI_SR);
-    // Max. ~25 s für die API behalten
     const maxSamples = GEMINI_SR * 25;
     if (x.length > maxSamples) x = x.subarray(0, maxSamples);
 
@@ -792,30 +935,28 @@ async function askGemini(id, attempt = 1) {
       f.readAsDataURL(new Blob([wav], { type: "audio/wav" }));
     });
 
-    const found = (c.notes || []).map(n => nn(n.m)).join(" ") || "keine";
-    // Einfache Pitch-Class-Hinweise für Akkorde
-    const pcs = [...new Set((c.notes || []).map(n => n.m % 12))].sort((a, b) => a - b);
+    const found = (c.notes || []).map(n => nn(n.m) + (n.conf ? "(" + Math.round(n.conf * 100) + "%)" : "")).join(" ") || "keine";
+    const pcs = Array.from(new Set((c.notes || []).map(n => n.m % 12))).sort((a, b) => a - b);
     const pcHint = pcs.length ? "Erkannte Tonklassen (0=C): " + pcs.join(",") : "";
 
-    const prompt = `Du bist ein erfahrener Gitarrenlehrer. Analysiere diese Aufnahme eines kurzen Gitarrenstücks. Gib NUR gültiges JSON zurück (kein Markdown). Alle Texte auf Deutsch, kurz und für Einsteiger verständlich. Felder:
-"name": einprägsamer Titel mit 2 bis 4 Wörtern, der Spielart und Stimmung widerspiegelt (z. B. "Sanfter Regen in Moll"),
-"stimmung": Emotion in 1 bis 2 Wörtern,
-"spielart": Spielweise in 1 bis 3 Wörtern (z. B. Fingerpicking, Strumming, Lead-Melodie),
-"tonart": Tonart/Skala,
-"tempo_bpm": Zahl,
-"akkorde": Liste der Akkorde in Spielreihenfolge, je {"name":"Am","bunde":[6 Zahlen von tiefer E- bis hoher e-Saite; -1 = nicht spielen, 0 = leer, sonst Bundnummer],"finger":[6 Zahlen, 0 = kein Finger, 1 = Zeigefinger bis 4 = kleiner Finger]}. Leere Liste, falls keine Akkorde gespielt werden,
-"ablauf": Liste mit Schritten zum Nachspielen in Reihenfolge (Anschlag, Rhythmus, Wechsel),
-"besonderheiten": Liste (Techniken wie Hammer-on, Slide, Bending, Vibrato, Dämpfen),
-"tipps": Liste mit Übungstipps.
-Automatisch erkannte Töne (einstimmig, können falsch sein, korrigiere sie bei Bedarf): ${found}
-${pcHint}`;
+    const prompt = "Du bist ein erfahrener Gitarrenlehrer. Analysiere diese Aufnahme eines kurzen Gitarrenstücks. Gib NUR gültiges JSON zurück (kein Markdown). Alle Texte auf Deutsch, kurz und für Einsteiger verständlich. Felder:\\n" +
+"\\"name\\": einprägsamer Titel mit 2 bis 4 Wörtern, der Spielart und Stimmung widerspiegelt (z. B. \\"Sanfter Regen in Moll\\"),\\n" +
+"\\"stimmung\\": Emotion in 1 bis 2 Wörtern,\\n" +
+"\\"spielart\\": Spielweise in 1 bis 3 Wörtern (z. B. Fingerpicking, Strumming, Lead-Melodie),\\n" +
+"\\"tonart\\": Tonart/Skala,\\n" +
+"\\"tempo_bpm\\": Zahl,\\n" +
+"\\"akkorde\\": Liste der Akkorde in Spielreihenfolge, je {\\"name\\":\\"Am\\",\\"bunde\\":[6 Zahlen von tiefer E- bis hoher e-Saite; -1 = nicht spielen, 0 = leer, sonst Bundnummer],\\"finger\\":[6 Zahlen, 0 = kein Finger, 1 = Zeigefinger bis 4 = kleiner Finger]}. Leere Liste, falls keine Akkorde gespielt werden,\\n" +
+"\\"ablauf\\": Liste mit Schritten zum Nachspielen in Reihenfolge (Anschlag, Rhythmus, Wechsel),\\n" +
+"\\"besonderheiten\\": Liste (Techniken wie Hammer-on, Slide, Bending, Vibrato, Dämpfen),\\n" +
+"\\"tipps\\": Liste mit Übungstipps.\\n" +
+"Automatisch erkannte Töne (einstimmig, mit Konfidenz, können falsch sein, korrigiere sie bei Bedarf): " + found + "\\n" + pcHint;
 
     const model = ls.get("gmodel") || "gemini-2.5-flash";
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 90000);
 
     const r = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+      "https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent",
       {
         method: "POST",
         headers: {
@@ -851,7 +992,7 @@ ${pcHint}`;
       throw new Error(errMsg);
     }
 
-    const txt = (j.candidates?.[0]?.content?.parts || [])
+    const txt = (j.candidates && j.candidates[0] && j.candidates[0].content && j.candidates[0].content.parts || [])
       .map(p => p.text || "")
       .join("")
       .replace(/```json|```/g, "")
@@ -878,7 +1019,7 @@ const audioCtx = () => {
 function pluck(m) {
   const c = audioCtx();
   const t = c.currentTime;
-  const f = 440 * 2 ** ((m - 69) / 12);
+  const f = 440 * Math.pow(2, (m - 69) / 12);
   const o = c.createOscillator();
   const fl = c.createBiquadFilter();
   const g = c.createGain();
@@ -926,7 +1067,6 @@ async function playNote(g) {
   }
 }
 
-/* Sequenz-Wiedergabe der erkannten Noten */
 let seqPlaying = false;
 async function playSequence(id) {
   if (seqPlaying) return;
@@ -992,7 +1132,6 @@ function tabCols(ns) {
     return best;
   });
 }
-
 function makeTab(ns) {
   const cols = tabCols(ns);
   let out = "";
@@ -1000,11 +1139,10 @@ function makeTab(ns) {
     const part = cols.slice(i, i + 10);
     out += LAB.map((l, s) =>
       l + "|" + part.map(c => (c && c.s === s ? ("-" + c.f).padEnd(3, "-") : "---")).join("") + "|"
-    ).join("\n") + "\n\n";
+    ).join("\\n") + "\\n\\n";
   }
   return out.trim();
 }
-
 function chordSvg(c) {
   const f = c.bunde || [];
   const fi = c.finger || [];
@@ -1012,27 +1150,26 @@ function chordSvg(c) {
   const max = Math.max(0, ...pos);
   const min = pos.length ? Math.min(...pos) : 1;
   const base = max > 4 ? min : 1;
-  let s = `<svg viewBox="0 0 90 114" width="90" role="img" aria-label="Akkord ${esc(String(c.name || ""))}"><text x="45" y="12" text-anchor="middle" class="cn">${esc(String(c.name || ""))}</text>`;
+  let s = '<svg viewBox="0 0 90 114" width="90" role="img" aria-label="Akkord ' + esc(String(c.name || "")) + '"><text x="45" y="12" text-anchor="middle" class="cn">' + esc(String(c.name || "")) + '</text>';
   for (let j = 0; j <= 5; j++) {
-    s += `<line x1="14" y1="${32 + j * 16}" x2="74" y2="${32 + j * 16}" class="${j === 0 && base === 1 ? "nut" : "gl"}"/>`;
+    s += '<line x1="14" y1="' + (32 + j * 16) + '" x2="74" y2="' + (32 + j * 16) + '" class="' + (j === 0 && base === 1 ? "nut" : "gl") + '"/>';
   }
   for (let i = 0; i < 6; i++) {
     const x = 14 + i * 12;
-    s += `<line x1="${x}" y1="32" x2="${x}" y2="112" class="gl"/>`;
-    if (f[i] === -1) s += `<text x="${x}" y="27" text-anchor="middle" class="mk">×</text>`;
-    else if (f[i] === 0) s += `<circle cx="${x}" cy="23" r="3.2" class="op"/>`;
+    s += '<line x1="' + x + '" y1="32" x2="' + x + '" y2="112" class="gl"/>';
+    if (f[i] === -1) s += '<text x="' + x + '" y="27" text-anchor="middle" class="mk">×</text>';
+    else if (f[i] === 0) s += '<circle cx="' + x + '" cy="23" r="3.2" class="op"/>';
     else if (f[i] > 0) {
       const y = 32 + (f[i] - base) * 16 + 8;
       if (f[i] - base < 5) {
-        s += `<circle cx="${x}" cy="${y}" r="5.5" class="dot"/>`;
-        if (fi[i] > 0) s += `<text x="${x}" y="${y + 3.5}" text-anchor="middle" class="fn">${fi[i]}</text>`;
+        s += '<circle cx="' + x + '" cy="' + y + '" r="5.5" class="dot"/>';
+        if (fi[i] > 0) s += '<text x="' + x + '" y="' + (y + 3.5) + '" text-anchor="middle" class="fn">' + fi[i] + '</text>';
       }
     }
   }
-  if (base > 1) s += `<text x="78" y="${32 + 8 + 4}" class="mk">${base}.</text>`;
+  if (base > 1) s += '<text x="78" y="' + (32 + 8 + 4) + '" class="mk">' + base + '.</text>';
   return s + "</svg>";
 }
-
 function tabSvg(ns) {
   const cols = tabCols(ns);
   const per = 8;
@@ -1043,29 +1180,30 @@ function tabSvg(ns) {
   for (let i = 0; i < cols.length; i += per) {
     const part = cols.slice(i, i + per);
     const w = L + part.length * cw + 2;
-    let s = `<svg viewBox="0 0 ${W} 116" role="img" aria-label="Tabulatur">`;
+    let s = '<svg viewBox="0 0 ' + W + ' 116" role="img" aria-label="Tabulatur">';
     LAB.forEach((l, k) => {
       const y = 12 + k * 15;
-      s += `<text x="5" y="${y + 4}" class="mk">${l}</text><line x1="${L}" y1="${y}" x2="${w}" y2="${y}" class="gl"/>`;
+      s += '<text x="5" y="' + (y + 4) + '" class="mk">' + l + '</text><line x1="' + L + '" y1="' + y + '" x2="' + w + '" y2="' + y + '" class="gl"/>';
     });
     part.forEach((c, j) => {
       const x = L + j * cw + cw / 2;
       const n = ns[i + j];
-      s += `<g class="nt" data-i="${i + j}" tabindex="0" role="button" aria-label="Ton ${nn(n.m)} abspielen"><rect x="${x - cw / 2}" y="0" width="${cw}" height="116" fill="transparent"/>`;
+      s += '<g class="nt" data-i="' + (i + j) + '" tabindex="0" role="button" aria-label="Ton ' + nn(n.m) + ' abspielen"><rect x="' + (x - cw / 2) + '" y="0" width="' + cw + '" height="116" fill="transparent"/>';
       if (c) {
         const y = 12 + c.s * 15;
-        s += `<circle cx="${x}" cy="${y}" r="7.2" class="tb"/><text x="${x}" y="${y + 3.6}" text-anchor="middle" class="tn">${c.f}</text>`;
+        s += '<circle cx="' + x + '" cy="' + y + '" r="7.2" class="tb"/><text x="' + x + '" y="' + (y + 3.6) + '" text-anchor="middle" class="tn">' + c.f + '</text>';
       }
       const bw = Math.min(cw - 6, Math.max(6, n.d * 40));
-      s += `<rect x="${x - bw / 2}" y="98" width="${bw}" height="3" rx="1.5" class="du"/><text x="${x}" y="112" text-anchor="middle" class="mk">${nn(n.m)}</text></g>`;
+      s += '<rect x="' + (x - bw / 2) + '" y="98" width="' + bw + '" height="3" rx="1.5" class="du"/><text x="' + x + '" y="112" text-anchor="middle" class="mk">' + nn(n.m) + '</text></g>';
     });
     rows.push(s + "</svg>");
   }
-  return `<div class="tabs">${rows.join("")}</div>`;
+  return '<div class="tabs">' + rows.join("") + '</div>';
 }
 
 /* ========== Wellenform ========== */
-function wavePeaks(x, buckets = 80) {
+function wavePeaks(x, buckets) {
+  buckets = buckets || 80;
   const step = Math.floor(x.length / buckets) || 1;
   const peaks = [];
   for (let i = 0; i < buckets; i++) {
@@ -1080,7 +1218,6 @@ function wavePeaks(x, buckets = 80) {
   }
   return peaks;
 }
-
 function drawWave(canvas, peaks) {
   const ctx = canvas.getContext("2d");
   const dpr = window.devicePixelRatio || 1;
@@ -1100,22 +1237,22 @@ function drawWave(canvas, peaks) {
 }
 
 /* ========== AI-Darstellung ========== */
-const li = x => Array.isArray(x) && x.length ? x.map(t => `<li>${esc(String(t))}</li>`).join("") : "";
+const li = x => Array.isArray(x) && x.length ? x.map(t => "<li>" + esc(String(t)) + "</li>").join("") : "";
 function aiParts(a) {
   if (!a) return ["", ""];
-  if (typeof a === "string") return ["", `<div class="ai">${esc(a)}</div>`];
+  if (typeof a === "string") return ["", '<div class="ai">' + esc(a) + '</div>'];
   const tags = [a.stimmung, a.spielart, a.tonart, a.tempo_bpm ? a.tempo_bpm + " BPM" : ""]
     .filter(Boolean)
-    .map(t => `<span>${esc(String(t))}</span>`)
+    .map(t => "<span>" + esc(String(t)) + "</span>")
     .join("");
-  const top = `<div class="tags">${tags}</div>` +
+  const top = '<div class="tags">' + tags + '</div>' +
     (a.akkorde && a.akkorde.length
-      ? `<h3>Akkorde in Reihenfolge</h3><div class="chords">${a.akkorde.map(chordSvg).join("")}</div>`
+      ? "<h3>Akkorde in Reihenfolge</h3><div class=\\"chords\\">" + a.akkorde.map(chordSvg).join("") + "</div>"
       : "");
   const bot =
-    (li(a.ablauf) ? `<h3>So spielst du es nach</h3><ol>${li(a.ablauf)}</ol>` : "") +
-    (li(a.besonderheiten) ? `<h3>Besonderheiten</h3><ul>${li(a.besonderheiten)}</ul>` : "") +
-    (li(a.tipps) ? `<h3>Tipps</h3><ul>${li(a.tipps)}</ul>` : "");
+    (li(a.ablauf) ? "<h3>So spielst du es nach</h3><ol>" + li(a.ablauf) + "</ol>" : "") +
+    (li(a.besonderheiten) ? "<h3>Besonderheiten</h3><ul>" + li(a.besonderheiten) + "</ul>" : "") +
+    (li(a.tipps) ? "<h3>Tipps</h3><ul>" + li(a.tipps) + "</ul>" : "");
   return [top, bot];
 }
 function aiText(a) {
@@ -1125,14 +1262,13 @@ function aiText(a) {
     a.name,
     [a.stimmung, a.spielart, a.tonart, a.tempo_bpm && a.tempo_bpm + " BPM"].filter(Boolean).join(", "),
     (a.akkorde || []).map(c => c.name + " (" + (c.bunde || []).map(n => (n < 0 ? "x" : n)).join("-") + ")").join("  "),
-    (a.ablauf || []).map((t, i) => (i + 1) + ". " + t).join("\n"),
-    (a.tipps || []).join("\n")
-  ].filter(Boolean).join("\n\n");
+    (a.ablauf || []).map((t, i) => (i + 1) + ". " + t).join("\\n"),
+    (a.tipps || []).join("\\n")
+  ].filter(Boolean).join("\\n\\n");
 }
 
-/* ========== MIDI-Export (Typ-0, sehr einfach) ========== */
+/* ========== MIDI-Export ========== */
 function notesToMidi(notes) {
-  // Delta-time encoding (variable length)
   const writeVar = (n) => {
     const bytes = [];
     let v = n & 0x7f;
@@ -1144,12 +1280,11 @@ function notesToMidi(notes) {
     return bytes;
   };
   const ticksPerBeat = 480;
-  const tempo = 500000; // 120 BPM
+  const tempo = 500000;
   const events = [];
-  // Tempo meta
   events.push({ t: 0, data: [0xff, 0x51, 0x03, (tempo >> 16) & 0xff, (tempo >> 8) & 0xff, tempo & 0xff] });
   notes.forEach(n => {
-    const startTick = Math.round(n.t * 2 * ticksPerBeat); // approx 120 BPM
+    const startTick = Math.round(n.t * 2 * ticksPerBeat);
     const durTick = Math.max(30, Math.round(n.d * 2 * ticksPerBeat));
     events.push({ t: startTick, data: [0x90, n.m, 80] });
     events.push({ t: startTick + durTick, data: [0x80, n.m, 0] });
@@ -1158,12 +1293,11 @@ function notesToMidi(notes) {
   let last = 0;
   const track = [];
   events.forEach(e => {
-    track.push(...writeVar(e.t - last));
-    track.push(...e.data);
+    track.push.apply(track, writeVar(e.t - last));
+    track.push.apply(track, e.data);
     last = e.t;
   });
-  track.push(0x00, 0xff, 0x2f, 0x00); // end of track
-
+  track.push(0x00, 0xff, 0x2f, 0x00);
   const trackLen = track.length;
   const hdr = [
     0x4d, 0x54, 0x68, 0x64, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00, 0x01,
@@ -1171,9 +1305,8 @@ function notesToMidi(notes) {
     0x4d, 0x54, 0x72, 0x6b,
     (trackLen >> 24) & 0xff, (trackLen >> 16) & 0xff, (trackLen >> 8) & 0xff, trackLen & 0xff
   ];
-  return new Uint8Array([...hdr, ...track]);
+  return new Uint8Array(hdr.concat(track));
 }
-
 function downloadBlob(data, filename, mime) {
   const url = URL.createObjectURL(new Blob([data], { type: mime }));
   const a = document.createElement("a");
@@ -1183,18 +1316,15 @@ function downloadBlob(data, filename, mime) {
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
-/* ========== Soft-Delete + Toast ========== */
+/* ========== Soft-Delete ========== */
 let toastTimer = null;
 function showToast(text, undoFn) {
   const el = $("#toast");
-  el.innerHTML = `<span>${esc(text)}</span>`;
+  el.innerHTML = "<span>" + esc(text) + "</span>";
   if (undoFn) {
     const btn = document.createElement("button");
     btn.textContent = "Rückgängig";
-    btn.onclick = () => {
-      undoFn();
-      hideToast();
-    };
+    btn.onclick = () => { undoFn(); hideToast(); };
     el.appendChild(btn);
   }
   el.classList.add("show");
@@ -1205,9 +1335,7 @@ function hideToast() {
   $("#toast").classList.remove("show");
   clearTimeout(toastTimer);
 }
-
 const pendingHardDelete = new Map();
-
 async function softDelete(id) {
   const clips = await getAll();
   const c = clips.find(k => k.id === id);
@@ -1250,57 +1378,54 @@ async function render() {
         const u = URL.createObjectURL(c.blob);
         urls.push(u);
         const notesStr = c.notes
-          ? (c.notes.length ? c.notes.map(n => nn(n.m)).join(" ") : "Keine Töne erkannt")
+          ? (c.notes.length
+              ? c.notes.map(n => nn(n.m) + (n.conf ? "·" + Math.round(n.conf * 100) : "")).join(" ")
+              : "Keine Töne erkannt")
           : "Noch nicht analysiert";
         const isDel = !!c.deleted;
-        return `<article class="clip${isDel ? " deleted" : ""}" data-id="${c.id}">
-          <input class="name" type="text" value="${esc(c.name).replace(/"/g, "&quot;")}" aria-label="Titel" ${isDel ? "disabled" : ""}>
-          <div class="meta">${new Date(c.id).toLocaleString("de-DE")}</div>
-          <canvas class="wave" height="36" data-id="${c.id}" aria-hidden="true"></canvas>
-          <audio controls src="${u}" preload="metadata"></audio>
-          <div class="btns">
-            <button class="b" data-a="notes" ${isDel ? "disabled" : ""}>Töne neu erkennen</button>
-            <button class="b p" data-a="ai" ${isDel || !isOnline() ? "disabled" : ""}>Neu analysieren (Gemini)</button>
-            <button class="b" data-a="seq" ${isDel || !c.notes || !c.notes.length ? "disabled" : ""}>Abspielen (erkannt)</button>
-            <button class="b" data-a="midi" ${isDel || !c.notes || !c.notes.length ? "disabled" : ""}>MIDI</button>
-            <button class="b" data-a="copy" ${isDel ? "disabled" : ""}>Kopieren</button>
-            <button class="b d" data-a="del" ${isDel ? "disabled" : ""}>Löschen</button>
-          </div>
-          ${aiParts(c.ai)[0]}
-          ${showTab && c.notes && c.notes.length
-            ? `<h3>Tabulatur</h3><p class="hint">Zahl im Kreis = Bund, Zeile = Saite (unten tiefes E). Balken = Tonlänge. Tippe auf einen Ton, um ihn zu hören.</p>${tabSvg(c.notes)}`
-            : ""}
-          ${aiParts(c.ai)[1]}
-          <div class="meta">Erkannte Töne: ${esc(notesStr)}</div>
-        </article>`;
+        return '<article class="clip' + (isDel ? " deleted" : "") + '" data-id="' + c.id + '">' +
+          '<input class="name" type="text" value="' + esc(c.name).replace(/"/g, "&quot;") + '" aria-label="Titel" ' + (isDel ? "disabled" : "") + '>' +
+          '<div class="meta">' + new Date(c.id).toLocaleString("de-DE") + '</div>' +
+          '<canvas class="wave" height="36" data-id="' + c.id + '" aria-hidden="true"></canvas>' +
+          '<audio controls src="' + u + '" preload="metadata"></audio>' +
+          '<div class="btns">' +
+            '<button class="b" data-a="notes" ' + (isDel ? "disabled" : "") + '>Töne neu erkennen</button>' +
+            '<button class="b p" data-a="ai" ' + (isDel || !isOnline() ? "disabled" : "") + '>Neu analysieren (Gemini)</button>' +
+            '<button class="b" data-a="seq" ' + (isDel || !c.notes || !c.notes.length ? "disabled" : "") + '>Abspielen (erkannt)</button>' +
+            '<button class="b" data-a="midi" ' + (isDel || !c.notes || !c.notes.length ? "disabled" : "") + '>MIDI</button>' +
+            '<button class="b" data-a="copy" ' + (isDel ? "disabled" : "") + '>Kopieren</button>' +
+            '<button class="b d" data-a="del" ' + (isDel ? "disabled" : "") + '>Löschen</button>' +
+          '</div>' +
+          aiParts(c.ai)[0] +
+          (showTab && c.notes && c.notes.length
+            ? '<h3>Tabulatur</h3><p class="hint">Zahl im Kreis = Bund, Zeile = Saite (unten tiefes E). Balken = Tonlänge. Tippe auf einen Ton, um ihn zu hören.</p>' + tabSvg(c.notes)
+            : "") +
+          aiParts(c.ai)[1] +
+          '<div class="meta">Erkannte Töne: ' + esc(notesStr) + '</div>' +
+        '</article>';
       }).join("")
     : '<p class="empty">Noch keine Aufnahmen. Tippe auf den Knopf und spiel los.</p>';
 
-  // Wellenformen asynchron zeichnen
   clips.forEach(async c => {
     if (c.deleted) return;
     try {
       const x = await getPCM(c);
-      const canvas = document.querySelector(`canvas.wave[data-id="${c.id}"]`);
+      const canvas = document.querySelector('canvas.wave[data-id="' + c.id + '"]');
       if (canvas) drawWave(canvas, wavePeaks(x));
-    } catch {}
+    } catch (e) {}
   });
 }
 
-/* ========== Event-Delegation ========== */
+/* ========== Events ========== */
 $("#list").addEventListener("keydown", e => {
-  if ((e.key === "Enter" || e.key === " ") && e.target.classList?.contains("nt")) {
+  if ((e.key === "Enter" || e.key === " ") && e.target.classList && e.target.classList.contains("nt")) {
     e.preventDefault();
     playNote(e.target);
   }
 });
-
 $("#list").addEventListener("click", async e => {
   const g = e.target.closest(".nt");
-  if (g) {
-    playNote(g);
-    return;
-  }
+  if (g) { playNote(g); return; }
   const b = e.target.closest("button");
   if (!b || b.disabled) return;
   const id = +b.closest(".clip").dataset.id;
@@ -1310,9 +1435,9 @@ $("#list").addEventListener("click", async e => {
   else if (a === "seq") playSequence(id);
   else if (a === "midi") {
     const c = CL[id];
-    if (c?.notes?.length) {
+    if (c && c.notes && c.notes.length) {
       const midi = notesToMidi(c.notes);
-      const name = (c.name || "gitarre").replace(/[^\w\-äöüÄÖÜß ]+/g, "").trim() || "gitarre";
+      const name = (c.name || "gitarre").replace(/[^\\w\\-äöüÄÖÜß ]+/g, "").trim() || "gitarre";
       downloadBlob(midi, name + ".mid", "audio/midi");
       msg("MIDI heruntergeladen.", "info");
     }
@@ -1325,16 +1450,15 @@ $("#list").addEventListener("click", async e => {
       (c.notes || []).map(n => nn(n.m)).join(" "),
       $("#tabOpt").checked && c.notes ? makeTab(c.notes) : "",
       aiText(c.ai)
-    ].filter(Boolean).join("\n\n");
+    ].filter(Boolean).join("\\n\\n");
     try {
       await navigator.clipboard.writeText(t);
       msg("Kopiert.", "info");
-    } catch {
+    } catch (err) {
       msg("Kopieren nicht möglich.");
     }
   }
 });
-
 $("#list").addEventListener("change", async e => {
   if (!e.target.classList.contains("name")) return;
   const id = +e.target.closest(".clip").dataset.id;
@@ -1345,33 +1469,46 @@ $("#list").addEventListener("change", async e => {
   await put(c);
 });
 
-/* ========== Einstellungen & Offline ========== */
+/* Einstellungen */
 $("#tabOpt").checked = ls.get("tabs") !== "0";
 $("#playMode").value = ls.get("pm") || "syn";
 $("#metroOpt").checked = ls.get("metro") === "1";
 $("#playMode").onchange = () => ls.set("pm", $("#playMode").value);
-$("#tabOpt").onchange = () => {
-  ls.set("tabs", $("#tabOpt").checked ? "1" : "0");
-  render();
-};
+$("#tabOpt").onchange = () => { ls.set("tabs", $("#tabOpt").checked ? "1" : "0"); render(); };
 $("#metroOpt").onchange = () => ls.set("metro", $("#metroOpt").checked ? "1" : "0");
 $("#gkey").value = ls.get("gkey") || "";
 $("#gkey").onchange = () => ls.set("gkey", $("#gkey").value.trim());
 $("#gmodel").value = ls.get("gmodel") || "";
 $("#gmodel").onchange = () => ls.set("gmodel", $("#gmodel").value.trim());
 
+const sensEl = $("#sens"), minDurEl = $("#minDur");
+if (sensEl) {
+  sensEl.value = ls.get("sens") || 12;
+  $("#sensVal").textContent = (sensEl.value / 100).toFixed(2);
+  sensEl.oninput = () => {
+    $("#sensVal").textContent = (sensEl.value / 100).toFixed(2);
+    ls.set("sens", sensEl.value);
+  };
+}
+if (minDurEl) {
+  minDurEl.value = ls.get("minDur") || 80;
+  $("#minDurVal").textContent = minDurEl.value;
+  minDurEl.oninput = () => {
+    $("#minDurVal").textContent = minDurEl.value;
+    ls.set("minDur", minDurEl.value);
+  };
+}
+
 function updateOnline() {
   const el = $("#offline");
   if (isOnline()) el.classList.remove("show");
   else el.classList.add("show");
-  // Buttons neu rendern, damit Gemini-Buttons disabled werden
   render();
 }
 window.addEventListener("online", updateOnline);
 window.addEventListener("offline", updateOnline);
 updateOnline();
 
-/* Initial */
 render();
 })();
 </script>
