@@ -1,185 +1,803 @@
 <!doctype html>
-<html lang="de"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#17262E">
+<meta name="description" content="Gitarren-Notizbuch – Aufnehmen, analysieren, Tabs und KI-Feedback">
 <title>Gitarren-Notizbuch</title>
 <style>
-:root{--bg:#E8EDEE;--ink:#17262E;--teal:#1D6F6A;--brass:#B5832B;--red:#A8402B;--card:#F8FAFA;--line:#C5D0D3}
-*{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,sans-serif}
-header{background:var(--ink);color:#fff;padding:18px 16px 14px;border-bottom:4px solid var(--brass)}
-h1{margin:0;font:600 24px/1.2 Georgia,"Iowan Old Style",serif}
-header p{margin:4px 0 0;color:#B9C8CD;font-size:14px}
-main{max-width:680px;margin:0 auto;padding:16px}
-#rec{text-align:center;padding:12px 0 6px}
-#recBtn{width:132px;height:132px;border-radius:50%;border:8px double var(--brass);background:var(--ink);color:#fff;font:600 15px Georgia,serif;cursor:pointer}
-#recBtn.on{background:var(--red);border-color:#fff}
-#timer{display:block;margin-top:8px;font-variant-numeric:tabular-nums;min-height:24px}
-.opts{display:flex;gap:16px;justify-content:center;flex-wrap:wrap;margin:8px 0 16px}
-details{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:16px}
-summary{cursor:pointer;font-weight:600}
-details label{display:block;margin-top:10px;font-size:14px}
-input[type=text],input[type=password]{width:100%;padding:9px;border:1px solid var(--line);border-radius:6px;font:inherit;background:#fff}
-.clip{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px;margin-bottom:14px}
-.clip input.name{font:600 18px Georgia,serif;border:0;border-bottom:1px dashed var(--line);background:transparent;padding:2px 0}
-.meta{font-size:13px;color:#51666E;margin:2px 0 8px}
-audio{width:100%;margin-bottom:8px}
-.btns{display:flex;flex-wrap:wrap;gap:8px}
-button.b{padding:9px 12px;border-radius:6px;border:1px solid var(--teal);background:#fff;color:var(--teal);font:inherit;font-size:14px;cursor:pointer}
-button.b.p{background:var(--teal);color:#fff}
-button.b.d{border-color:var(--red);color:var(--red)}
-button:focus-visible,input:focus-visible,summary:focus-visible{outline:3px solid var(--brass);outline-offset:2px}
-pre{background:#fff;border:1px solid var(--line);border-radius:6px;padding:10px;overflow-x:auto;font:13px/1.35 ui-monospace,Menlo,monospace;margin:10px 0 0}
-.ai{white-space:pre-wrap;margin-top:10px;padding:10px;border-left:4px solid var(--brass);background:#fff;font-size:15px}
-#msg{min-height:22px;text-align:center;color:var(--red);font-size:14px;margin-bottom:8px}
-.empty{text-align:center;color:#51666E;padding:24px}
-
-h3{margin:14px 0 6px;font:600 16px Georgia,serif}
-.hint{margin:0 0 6px;font-size:13px;color:#51666E}
-.tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
-.tags span{background:var(--ink);color:#fff;border-radius:14px;padding:3px 11px;font-size:13px}
-.chords{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px}
-.chords svg{flex:none;background:#fff;border:1px solid var(--line);border-radius:6px}
-.tabs svg{display:block;width:100%;max-width:360px;background:#fff;border:1px solid var(--line);border-radius:6px;margin-bottom:8px}
-.gl{stroke:#8FA1A7;stroke-width:1}.nut{stroke:var(--ink);stroke-width:4}
-.mk{font:11px system-ui,sans-serif;fill:#51666E}.cn{font:700 13px Georgia,serif;fill:var(--ink)}
-.op{fill:none;stroke:var(--ink);stroke-width:1.2}
-.dot,.tb{fill:var(--teal)}.tn,.fn{font:700 10px system-ui,sans-serif;fill:#fff}
-.du{fill:var(--brass)}
-ol,ul{margin:0;padding-left:22px}li{margin-bottom:4px}
-.nt{cursor:pointer;outline:none}
-.nt:hover .tb,.nt.on .tb,.nt:focus-visible .tb{fill:var(--brass)}
-.nt:focus-visible rect:first-child{stroke:var(--brass);stroke-width:2}
-</style></head><body>
-<header><h1>Gitarren-Notizbuch</h1><p>Aufnehmen, speichern, analysieren, nachspielen.</p></header>
+:root {
+  --bg: #E8EDEE;
+  --ink: #17262E;
+  --teal: #1D6F6A;
+  --brass: #B5832B;
+  --red: #A8402B;
+  --card: #F8FAFA;
+  --line: #C5D0D3;
+  --muted: #51666E;
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 16px/1.5 system-ui, -apple-system, sans-serif;
+  padding-bottom: calc(24px + var(--safe-bottom));
+}
+header {
+  background: var(--ink);
+  color: #fff;
+  padding: 18px 16px 14px;
+  border-bottom: 4px solid var(--brass);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+h1 {
+  margin: 0;
+  font: 600 24px/1.2 Georgia, "Iowan Old Style", serif;
+}
+header p {
+  margin: 4px 0 0;
+  color: #B9C8CD;
+  font-size: 14px;
+}
+main {
+  max-width: 680px;
+  margin: 0 auto;
+  padding: 16px;
+}
+#rec {
+  text-align: center;
+  padding: 12px 0 6px;
+}
+#recBtn {
+  width: 132px;
+  height: 132px;
+  border-radius: 50%;
+  border: 8px double var(--brass);
+  background: var(--ink);
+  color: #fff;
+  font: 600 15px Georgia, serif;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: background .15s, transform .1s;
+}
+#recBtn:active { transform: scale(0.97); }
+#recBtn.on {
+  background: var(--red);
+  border-color: #fff;
+}
+#timer {
+  display: block;
+  margin-top: 8px;
+  font-variant-numeric: tabular-nums;
+  min-height: 24px;
+}
+.opts {
+  display: flex;
+  gap: 16px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin: 8px 0 16px;
+  font-size: 15px;
+}
+.opts label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+details {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 16px;
+}
+summary { cursor: pointer; font-weight: 600; }
+details label {
+  display: block;
+  margin-top: 10px;
+  font-size: 14px;
+}
+input[type=text], input[type=password], select {
+  width: 100%;
+  padding: 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font: inherit;
+  background: #fff;
+}
+.clip {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 14px;
+  position: relative;
+  transition: opacity .2s;
+}
+.clip.deleted { opacity: 0.45; pointer-events: none; }
+.clip input.name {
+  font: 600 18px Georgia, serif;
+  border: 0;
+  border-bottom: 1px dashed var(--line);
+  background: transparent;
+  padding: 2px 0;
+  width: 100%;
+}
+.meta {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 2px 0 8px;
+}
+.wave {
+  display: block;
+  width: 100%;
+  height: 36px;
+  margin: 6px 0 8px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+audio { width: 100%; margin-bottom: 8px; }
+.btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+button.b {
+  padding: 9px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--teal);
+  background: #fff;
+  color: var(--teal);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  touch-action: manipulation;
+  min-height: 40px;
+}
+button.b.p { background: var(--teal); color: #fff; }
+button.b.d { border-color: var(--red); color: var(--red); }
+button.b:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+button:focus-visible,
+input:focus-visible,
+summary:focus-visible,
+select:focus-visible {
+  outline: 3px solid var(--brass);
+  outline-offset: 2px;
+}
+pre {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 10px;
+  overflow-x: auto;
+  font: 13px/1.35 ui-monospace, Menlo, monospace;
+  margin: 10px 0 0;
+}
+.ai {
+  white-space: pre-wrap;
+  margin-top: 10px;
+  padding: 10px;
+  border-left: 4px solid var(--brass);
+  background: #fff;
+  font-size: 15px;
+}
+#msg {
+  min-height: 22px;
+  text-align: center;
+  color: var(--red);
+  font-size: 14px;
+  margin-bottom: 8px;
+}
+#msg.info { color: var(--teal); }
+#msg.progress { color: var(--ink); }
+.empty {
+  text-align: center;
+  color: var(--muted);
+  padding: 24px;
+}
+h3 {
+  margin: 14px 0 6px;
+  font: 600 16px Georgia, serif;
+}
+.hint {
+  margin: 0 0 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+.tags span {
+  background: var(--ink);
+  color: #fff;
+  border-radius: 14px;
+  padding: 3px 11px;
+  font-size: 13px;
+}
+.chords {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  -webkit-overflow-scrolling: touch;
+}
+.chords svg {
+  flex: none;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.tabs svg {
+  display: block;
+  width: 100%;
+  max-width: 360px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  margin-bottom: 8px;
+}
+.gl { stroke: #8FA1A7; stroke-width: 1; }
+.nut { stroke: var(--ink); stroke-width: 4; }
+.mk { font: 11px system-ui, sans-serif; fill: #51666E; }
+.cn { font: 700 13px Georgia, serif; fill: var(--ink); }
+.op { fill: none; stroke: var(--ink); stroke-width: 1.2; }
+.dot, .tb { fill: var(--teal); }
+.tn, .fn { font: 700 10px system-ui, sans-serif; fill: #fff; }
+.du { fill: var(--brass); }
+ol, ul { margin: 0; padding-left: 22px; }
+li { margin-bottom: 4px; }
+.nt { cursor: pointer; outline: none; }
+.nt:hover .tb,
+.nt.on .tb,
+.nt:focus-visible .tb { fill: var(--brass); }
+.nt:focus-visible rect:first-child {
+  stroke: var(--brass);
+  stroke-width: 2;
+}
+/* Toast / Undo */
+#toast {
+  position: fixed;
+  bottom: calc(20px + var(--safe-bottom));
+  left: 50%;
+  transform: translateX(-50%) translateY(120%);
+  background: var(--ink);
+  color: #fff;
+  padding: 12px 18px;
+  border-radius: 8px;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  z-index: 50;
+  box-shadow: 0 4px 20px rgba(0,0,0,.25);
+  transition: transform .25s ease;
+  max-width: calc(100% - 32px);
+}
+#toast.show { transform: translateX(-50%) translateY(0); }
+#toast button {
+  background: var(--brass);
+  color: var(--ink);
+  border: 0;
+  border-radius: 4px;
+  padding: 6px 12px;
+  font: 600 13px system-ui, sans-serif;
+  cursor: pointer;
+}
+/* Offline banner */
+#offline {
+  display: none;
+  background: var(--red);
+  color: #fff;
+  text-align: center;
+  padding: 6px 12px;
+  font-size: 13px;
+}
+#offline.show { display: block; }
+/* Progress bar */
+.prog {
+  height: 3px;
+  background: var(--line);
+  border-radius: 2px;
+  margin: 6px 0 0;
+  overflow: hidden;
+  display: none;
+}
+.prog.on { display: block; }
+.prog > i {
+  display: block;
+  height: 100%;
+  background: var(--teal);
+  width: 0%;
+  transition: width .2s;
+}
+@media (max-width: 420px) {
+  #recBtn { width: 112px; height: 112px; font-size: 14px; }
+  .btns button.b { flex: 1 1 calc(50% - 8px); min-width: 0; }
+}
+</style>
+</head>
+<body>
+<div id="offline" role="status">Offline – Gemini-Analyse nicht verfügbar</div>
+<header>
+  <h1>Gitarren-Notizbuch</h1>
+  <p>Aufnehmen, speichern, analysieren, nachspielen.</p>
+</header>
 <main>
-<section id="rec">
-  <button id="recBtn" type="button">Aufnahme starten</button>
-  <span id="timer"></span>
-</section>
-<div id="msg" role="status"></div>
-<div class="opts">
-  <label><input type="checkbox" id="tabOpt"> Tabs erzeugen</label>
-  <label>Antippen spielt: <select id="playMode"><option value="syn">Referenzton</option><option value="orig">Original-Ausschnitt</option></select></label>
-</div>
-<details>
-  <summary>Gemini-Zugang</summary>
-  <label>API-Key (bleibt nur in diesem Browser)<input type="password" id="gkey" autocomplete="off"></label>
-  <label>Modell<input type="text" id="gmodel" placeholder="gemini-2.5-flash"></label>
-</details>
-<section id="list"></section>
+  <section id="rec">
+    <button id="recBtn" type="button" aria-label="Aufnahme starten oder stoppen">Aufnahme starten</button>
+    <span id="timer"></span>
+    <div class="prog" id="recProg"><i></i></div>
+  </section>
+  <div id="msg" role="status"></div>
+  <div class="opts">
+    <label><input type="checkbox" id="tabOpt"> Tabs erzeugen</label>
+    <label>Antippen spielt:
+      <select id="playMode" aria-label="Wiedergabemodus">
+        <option value="syn">Referenzton</option>
+        <option value="orig">Original-Ausschnitt</option>
+      </select>
+    </label>
+    <label><input type="checkbox" id="metroOpt"> Metronom (90 BPM)</label>
+  </div>
+  <details>
+    <summary>Gemini-Zugang</summary>
+    <label>API-Key (bleibt nur in diesem Browser)
+      <input type="password" id="gkey" autocomplete="off" spellcheck="false">
+    </label>
+    <label>Modell
+      <input type="text" id="gmodel" placeholder="gemini-2.5-flash">
+    </label>
+    <p class="hint" style="margin-top:8px">Der Key wird nur lokal gespeichert und ausschließlich an Google gesendet, wenn du „Neu analysieren“ auslösest.</p>
+  </details>
+  <section id="list"></section>
 </main>
+<div id="toast" role="status" aria-live="polite"></div>
+
 <script>
-const $=s=>document.querySelector(s), SR=22050;
-const NAMES=["C","C♯","D","D♯","E","F","F♯","G","G♯","A","B","H"];
-const nn=m=>NAMES[m%12]+(Math.floor(m/12)-1);
-const msg=t=>$('#msg').textContent=t||'';
-const ls={get:k=>{try{return localStorage.getItem(k)}catch(e){return null}},set:(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}}};
+(function () {
+"use strict";
 
-/* Speicher (IndexedDB) */
-const dbp=new Promise((res,rej)=>{const r=indexedDB.open('gitarre',1);r.onupgradeneeded=()=>r.result.createObjectStore('clips',{keyPath:'id'});r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)});
-const tx=async(m,f)=>{const d=await dbp;return new Promise((res,rej)=>{const t=d.transaction('clips',m);const o=f(t.objectStore('clips'));t.oncomplete=()=>res(o&&o.result);t.onerror=()=>rej(t.error)})};
-const getAll=()=>tx('readonly',s=>s.getAll()), put=c=>tx('readwrite',s=>s.put(c)), del=id=>tx('readwrite',s=>s.delete(id));
+/* ========== Konstanten ========== */
+const SR = 22050;                 // interne Analyse-Sample-Rate
+const GEMINI_SR = 16000;          // für API-Upload
+const MAX_REC_S = 60;
+const YIN_THRESH = 0.15;
+const MIN_RMS = 0.008;
+const FRAME_W = 1024;
+const FRAME_H = 512;
+const MIN_NOTE_FRAMES = 2;
+const MERGE_GAP_S = 0.09;
+const SOFT_DELETE_MS = 8000;
+const NAMES = ["C","C♯","D","D♯","E","F","F♯","G","G♯","A","B","H"];
+const OPEN = [64, 59, 55, 50, 45, 40];
+const LAB = ["e", "B", "G", "D", "A", "E"];
 
-/* Aufnahme */
-let mr,chunks,t0,tick;
-const setBtn=on=>{$('#recBtn').classList.toggle('on',on);$('#recBtn').textContent=on?'Stopp':'Aufnahme starten';if(!on)$('#timer').textContent=''};
-$('#recBtn').onclick=async()=>{
-  if(mr&&mr.state==='recording'){mr.stop();return}
-  try{
-    const st=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}});
-    mr=new MediaRecorder(st);chunks=[];msg('');
-    mr.ondataavailable=e=>chunks.push(e.data);
-    mr.onstop=async()=>{clearInterval(tick);st.getTracks().forEach(t=>t.stop());setBtn(false);await finish(new Blob(chunks,{type:mr.mimeType}))};
-    mr.start();t0=Date.now();setBtn(true);
-    tick=setInterval(()=>{const s=(Date.now()-t0)/1000;$('#timer').textContent=s.toFixed(0)+' s (max. 60 s)';if(s>=60)mr.stop()},250);
-  }catch(e){msg('Kein Mikrofonzugang: '+e.message+' (Seite muss über https oder localhost laufen.)')}
+/* ========== Hilfsfunktionen ========== */
+const $ = s => document.querySelector(s);
+const nn = m => NAMES[((m % 12) + 12) % 12] + (Math.floor(m / 12) - 1);
+const esc = s => String(s).replace(/[&<>"']/g, m =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
+const msg = (t, cls) => {
+  const el = $("#msg");
+  el.textContent = t || "";
+  el.className = cls || "";
 };
-async function finish(blob){
-  const c={id:Date.now(),name:'Stück vom '+new Date().toLocaleString('de-DE',{dateStyle:'short',timeStyle:'short'}),blob,notes:null,ai:null};
-  await put(c);await render();await analyze(c.id);await askGemini(c.id);
+const ls = {
+  get: k => { try { return localStorage.getItem(k); } catch { return null; } },
+  set: (k, v) => { try { localStorage.setItem(k, v); } catch {} }
+};
+const isOnline = () => navigator.onLine !== false;
+
+/* ========== IndexedDB ========== */
+const dbp = new Promise((res, rej) => {
+  const r = indexedDB.open("gitarre", 2);
+  r.onupgradeneeded = () => {
+    const db = r.result;
+    if (!db.objectStoreNames.contains("clips")) {
+      db.createObjectStore("clips", { keyPath: "id" });
+    }
+  };
+  r.onsuccess = () => res(r.result);
+  r.onerror = () => rej(r.error);
+});
+const tx = async (mode, fn) => {
+  const d = await dbp;
+  return new Promise((res, rej) => {
+    const t = d.transaction("clips", mode);
+    const store = t.objectStore("clips");
+    const req = fn(store);
+    t.oncomplete = () => res(req && req.result);
+    t.onerror = () => rej(t.error);
+  });
+};
+const getAll = () => tx("readonly", s => s.getAll());
+const put = c => tx("readwrite", s => s.put(c));
+const del = id => tx("readwrite", s => s.delete(id));
+
+/* ========== PCM-Cache ========== */
+const PCM = new Map(); // id -> Float32Array (bei SR)
+
+async function getPCM(c) {
+  if (PCM.has(c.id)) return PCM.get(c.id);
+  const x = await decodeBlob(c.blob, SR);
+  PCM.set(c.id, x);
+  return x;
+}
+async function decodeBlob(blob, targetSR) {
+  const ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: targetSR });
+  try {
+    const buf = await ctx.decodeAudioData(await blob.arrayBuffer());
+    const ch = buf.getChannelData(0);
+    // Falls Browser andere Rate liefert, linear resamplen
+    if (Math.abs(buf.sampleRate - targetSR) < 1) return ch.slice(0);
+    const ratio = buf.sampleRate / targetSR;
+    const outLen = Math.floor(ch.length / ratio);
+    const out = new Float32Array(outLen);
+    for (let i = 0; i < outLen; i++) {
+      const src = i * ratio;
+      const i0 = Math.floor(src);
+      const f = src - i0;
+      out[i] = ch[i0] * (1 - f) + (ch[i0 + 1] || 0) * f;
+    }
+    return out;
+  } finally {
+    ctx.close();
+  }
 }
 
-/* Audio dekodieren */
-async function decode(blob){const ctx=new(window.AudioContext||window.webkitAudioContext)({sampleRate:SR});const b=await ctx.decodeAudioData(await blob.arrayBuffer());ctx.close();return b.getChannelData(0)}
+/* ========== Web Worker für Pitch-Detection ========== */
+const workerCode = `
+const SR = ${SR};
+const FRAME_W = ${FRAME_W};
+const FRAME_H = ${FRAME_H};
+const YIN_THRESH = ${YIN_THRESH};
+const MIN_RMS = ${MIN_RMS};
+const MIN_NOTE_FRAMES = ${MIN_NOTE_FRAMES};
+const MERGE_GAP_S = ${MERGE_GAP_S};
 
-/* Tonhöhenerkennung (YIN, einstimmig) */
-function yin(x,o,W){
-  const tmax=Math.floor(SR/70),tmin=Math.floor(SR/1000),d=new Float32Array(tmax+2),n=new Float32Array(tmax+2);
-  for(let t=1;t<=tmax;t++){let s=0;for(let i=0;i<W;i++){const v=x[o+i]-x[o+i+t];s+=v*v}d[t]=s}
-  let run=0;n[0]=1;
-  for(let t=1;t<=tmax;t++){run+=d[t];n[t]=run?d[t]*t/run:1}
-  for(let t=tmin;t<tmax;t++){
-    if(n[t]<0.15){
-      while(t+1<tmax&&n[t+1]<n[t])t++;
-      const a=n[t-1],b=n[t],c=n[t+1],den=a-2*b+c,tt=den?t+(a-c)/(2*den):t;
-      return SR/tt;
+function yin(x, o, W, dynThresh) {
+  const tmax = Math.floor(SR / 70);
+  const tmin = Math.floor(SR / 1000);
+  const d = new Float32Array(tmax + 2);
+  const n = new Float32Array(tmax + 2);
+  for (let t = 1; t <= tmax; t++) {
+    let s = 0;
+    for (let i = 0; i < W; i++) {
+      const v = x[o + i] - x[o + i + t];
+      s += v * v;
+    }
+    d[t] = s;
+  }
+  let run = 0;
+  n[0] = 1;
+  for (let t = 1; t <= tmax; t++) {
+    run += d[t];
+    n[t] = run ? (d[t] * t) / run : 1;
+  }
+  const thresh = dynThresh || YIN_THRESH;
+  for (let t = tmin; t < tmax; t++) {
+    if (n[t] < thresh) {
+      while (t + 1 < tmax && n[t + 1] < n[t]) t++;
+      const a = n[t - 1], b = n[t], c = n[t + 1];
+      const den = a - 2 * b + c;
+      const tt = den ? t + (a - c) / (2 * den) : t;
+      return SR / tt;
     }
   }
   return null;
 }
-function detect(x){
-  const W=1024,H=512,fr=[];
-  for(let o=0;o+W+320<x.length;o+=H){
-    let r=0;for(let i=0;i<W;i++)r+=x[o+i]*x[o+i];r=Math.sqrt(r/W);
-    let m=null;if(r>0.01){const f=yin(x,o,W);if(f)m=Math.round(69+12*Math.log2(f/440))}
+
+function detect(x) {
+  // Dynamischer Noise-Floor aus den leisesten 20 % der Frames
+  const energies = [];
+  for (let o = 0; o + FRAME_W + 320 < x.length; o += FRAME_H) {
+    let r = 0;
+    for (let i = 0; i < FRAME_W; i++) r += x[o + i] * x[o + i];
+    energies.push(Math.sqrt(r / FRAME_W));
+  }
+  energies.sort((a, b) => a - b);
+  const noiseFloor = energies[Math.floor(energies.length * 0.2)] || 0;
+  const rmsThresh = Math.max(MIN_RMS, noiseFloor * 3.5);
+
+  const fr = [];
+  for (let o = 0; o + FRAME_W + 320 < x.length; o += FRAME_H) {
+    let r = 0;
+    for (let i = 0; i < FRAME_W; i++) r += x[o + i] * x[o + i];
+    r = Math.sqrt(r / FRAME_W);
+    let m = null;
+    if (r > rmsThresh) {
+      const f = yin(x, o, FRAME_W, YIN_THRESH);
+      if (f) m = Math.round(69 + 12 * Math.log2(f / 440));
+    }
     fr.push(m);
   }
-  const out=[];let cur=null,gap=0;
-  fr.forEach((m,i)=>{
-    if(m!==null&&cur&&m===cur.m){cur.e=i;gap=0;return}
-    if(cur&&m===null&&gap<2){gap++;return}
-    if(cur){out.push(cur);cur=null}
-    gap=0;if(m!==null)cur={m,s:i,e:i};
-  });
-  if(cur)out.push(cur);
-  return out.filter(n=>n.e-n.s>=2&&n.m>=40&&n.m<=88).map(n=>({m:n.m,t:+(n.s*H/SR).toFixed(2),d:+((n.e-n.s+1)*H/SR).toFixed(2)}));
-}
 
-/* Tabs (Standardstimmung, Töne -> Saite/Bund) */
-const OPEN=[64,59,55,50,45,40],LAB=['e','B','G','D','A','E'];
-function tabCols(ns){
-  let prev=null;
-  return ns.map(n=>{
-    let best=null;
-    OPEN.forEach((o,s)=>{const f=n.m-o;if(f>=0&&f<=15){const sc=prev===null?f:Math.abs(f-prev)+f*0.3;if(!best||sc<best.sc)best={s,f,sc}}});
-    if(best)prev=best.f;return best;
+  // Roh-Noten extrahieren
+  const raw = [];
+  let cur = null, gap = 0;
+  fr.forEach((m, i) => {
+    if (m !== null && cur && m === cur.m) {
+      cur.e = i;
+      gap = 0;
+      return;
+    }
+    if (cur && m === null && gap < 2) {
+      gap++;
+      return;
+    }
+    if (cur) {
+      raw.push(cur);
+      cur = null;
+    }
+    gap = 0;
+    if (m !== null) cur = { m, s: i, e: i };
   });
-}
-function makeTab(ns){
-  const cols=tabCols(ns);
-  let out='';
-  for(let i=0;i<cols.length;i+=10){
-    const part=cols.slice(i,i+10);
-    out+=LAB.map((l,s)=>l+'|'+part.map(c=>c&&c.s===s?('-'+c.f).padEnd(3,'-'):'---').join('')+'|').join('\n')+'\n\n';
+  if (cur) raw.push(cur);
+
+  // Post-Processing: kurze entfernen, gleiche Noten zusammenführen
+  let notes = raw
+    .filter(n => n.e - n.s >= MIN_NOTE_FRAMES && n.m >= 40 && n.m <= 88)
+    .map(n => ({
+      m: n.m,
+      t: +(n.s * FRAME_H / SR).toFixed(3),
+      d: +((n.e - n.s + 1) * FRAME_H / SR).toFixed(3)
+    }));
+
+  // Benachbarte gleiche Töne mit kleiner Lücke mergen
+  const merged = [];
+  for (const n of notes) {
+    const last = merged[merged.length - 1];
+    if (last && last.m === n.m && n.t - (last.t + last.d) < MERGE_GAP_S) {
+      last.d = +(n.t + n.d - last.t).toFixed(3);
+    } else {
+      merged.push({ ...n });
+    }
   }
-  return out.trim();
+  return merged;
 }
 
-async function analyze(id){
-  const c=(await getAll()).find(k=>k.id===id);if(!c)return;
-  msg('Erkenne Töne …');
-  try{const x=await decode(c.blob);c.notes=detect(x);await put(c);msg(c.notes.length?'':'Keine Töne erkannt (zu leise oder mehrstimmig?).')}
-  catch(e){msg('Analyse fehlgeschlagen: '+e.message)}
+self.onmessage = function (e) {
+  if (e.data.type === "detect") {
+    try {
+      const notes = detect(e.data.samples);
+      self.postMessage({ type: "result", id: e.data.id, notes });
+    } catch (err) {
+      self.postMessage({ type: "error", id: e.data.id, message: err.message });
+    }
+  }
+};
+`;
+
+let worker;
+function getWorker() {
+  if (worker) return worker;
+  const blob = new Blob([workerCode], { type: "application/javascript" });
+  worker = new Worker(URL.createObjectURL(blob));
+  return worker;
+}
+
+/* ========== Aufnahme ========== */
+let mr, chunks, t0, tick, recAbort = false;
+const setBtn = on => {
+  $("#recBtn").classList.toggle("on", on);
+  $("#recBtn").textContent = on ? "Stopp" : "Aufnahme starten";
+  if (!on) {
+    $("#timer").textContent = "";
+    $("#recProg").classList.remove("on");
+  }
+};
+
+$("#recBtn").onclick = async () => {
+  if (mr && mr.state === "recording") {
+    recAbort = false;
+    mr.stop();
+    return;
+  }
+  try {
+    const st = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false
+      }
+    });
+    mr = new MediaRecorder(st);
+    chunks = [];
+    recAbort = false;
+    msg("");
+    mr.ondataavailable = e => chunks.push(e.data);
+    mr.onstop = async () => {
+      clearInterval(tick);
+      st.getTracks().forEach(t => t.stop());
+      setBtn(false);
+      stopMetro();
+      if (recAbort || !chunks.length) return;
+      await finish(new Blob(chunks, { type: mr.mimeType || "audio/webm" }));
+    };
+    mr.start(250);
+    t0 = Date.now();
+    setBtn(true);
+    if ($("#metroOpt").checked) startMetro();
+    const prog = $("#recProg");
+    prog.classList.add("on");
+    tick = setInterval(() => {
+      const s = (Date.now() - t0) / 1000;
+      $("#timer").textContent = s.toFixed(0) + " s (max. " + MAX_REC_S + " s)";
+      prog.querySelector("i").style.width = Math.min(100, (s / MAX_REC_S) * 100) + "%";
+      if (s >= MAX_REC_S) mr.stop();
+    }, 200);
+  } catch (e) {
+    msg("Kein Mikrofonzugang: " + e.message + " (Seite muss über https oder localhost laufen.)");
+  }
+};
+
+async function finish(blob) {
+  const c = {
+    id: Date.now(),
+    name: "Stück vom " + new Date().toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" }),
+    blob,
+    notes: null,
+    ai: null,
+    deleted: null
+  };
+  try {
+    await put(c);
+  } catch (e) {
+    if (e.name === "QuotaExceededError") {
+      msg("Speicher voll. Bitte ältere Aufnahmen löschen.");
+      return;
+    }
+    throw e;
+  }
   await render();
+  await analyze(c.id);
+  if (ls.get("gkey") && isOnline()) await askGemini(c.id);
+  else if (!ls.get("gkey")) msg("Bitte zuerst den Gemini-API-Key eintragen, um eine KI-Analyse zu erhalten.", "info");
 }
 
-/* Gemini */
-function toWav(x){
-  const b=new ArrayBuffer(44+x.length*2),v=new DataView(b),w=(o,s)=>[...s].forEach((c,i)=>v.setUint8(o+i,c.charCodeAt(0)));
-  w(0,'RIFF');v.setUint32(4,36+x.length*2,true);w(8,'WAVEfmt ');v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,1,true);
-  v.setUint32(24,SR,true);v.setUint32(28,SR*2,true);v.setUint16(32,2,true);v.setUint16(34,16,true);w(36,'data');v.setUint32(40,x.length*2,true);
-  x.forEach((s,i)=>v.setInt16(44+i*2,Math.max(-1,Math.min(1,s))*32767,true));return b;
+/* ========== Analyse (Worker) ========== */
+const pendingDetect = new Map(); // id -> resolve
+
+function analyze(id) {
+  return new Promise(async (resolve) => {
+    const clips = await getAll();
+    const c = clips.find(k => k.id === id);
+    if (!c || c.deleted) { resolve(); return; }
+    msg("Erkenne Töne …", "progress");
+    try {
+      const x = await getPCM(c);
+      const w = getWorker();
+      pendingDetect.set(id, { resolve, c });
+      w.onmessage = ev => {
+        const d = ev.data;
+        if (d.type === "result" && pendingDetect.has(d.id)) {
+          const { resolve: res, c: clip } = pendingDetect.get(d.id);
+          pendingDetect.delete(d.id);
+          clip.notes = d.notes;
+          put(clip).then(() => {
+            msg(d.notes.length ? "" : "Keine Töne erkannt (zu leise oder mehrstimmig?).");
+            render().then(res);
+          });
+        } else if (d.type === "error" && pendingDetect.has(d.id)) {
+          const { resolve: res } = pendingDetect.get(d.id);
+          pendingDetect.delete(d.id);
+          msg("Analyse fehlgeschlagen: " + d.message);
+          render().then(res);
+        }
+      };
+      // Transferable für Performance
+      const copy = x.slice(0);
+      w.postMessage({ type: "detect", id, samples: copy }, [copy.buffer]);
+    } catch (e) {
+      msg("Analyse fehlgeschlagen: " + e.message);
+      resolve();
+    }
+  });
 }
-async function askGemini(id){
-  const key=ls.get('gkey');if(!key){msg('Bitte zuerst den Gemini-API-Key eintragen.');return}
-  const c=(await getAll()).find(k=>k.id===id);if(!c)return;
-  msg('Gemini analysiert …');
-  try{
-    const x=await decode(c.blob);
-    const b64=await new Promise(r=>{const f=new FileReader();f.onload=()=>r(f.result.split(',')[1]);f.readAsDataURL(new Blob([toWav(x)],{type:'audio/wav'}))});
-    const found=(c.notes||[]).map(n=>nn(n.m)).join(' ')||'keine';
-    const prompt=`Du bist ein erfahrener Gitarrenlehrer. Analysiere diese Aufnahme eines kurzen Gitarrenstücks. Gib NUR gültiges JSON zurück (kein Markdown). Alle Texte auf Deutsch, kurz und für Einsteiger verständlich. Felder:
+
+/* ========== WAV / Downsample für Gemini ========== */
+function toWav(samples, sampleRate) {
+  const n = samples.length;
+  const buf = new ArrayBuffer(44 + n * 2);
+  const v = new DataView(buf);
+  const w = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  w(0, "RIFF");
+  v.setUint32(4, 36 + n * 2, true);
+  w(8, "WAVEfmt ");
+  v.setUint32(16, 16, true);
+  v.setUint16(20, 1, true);
+  v.setUint16(22, 1, true);
+  v.setUint32(24, sampleRate, true);
+  v.setUint32(28, sampleRate * 2, true);
+  v.setUint16(32, 2, true);
+  v.setUint16(34, 16, true);
+  w(36, "data");
+  v.setUint32(40, n * 2, true);
+  for (let i = 0; i < n; i++) {
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    v.setInt16(44 + i * 2, s * 32767, true);
+  }
+  return buf;
+}
+
+function downsample(x, fromSR, toSR) {
+  if (Math.abs(fromSR - toSR) < 1) return x;
+  const ratio = fromSR / toSR;
+  const outLen = Math.floor(x.length / ratio);
+  const out = new Float32Array(outLen);
+  for (let i = 0; i < outLen; i++) {
+    const src = i * ratio;
+    const i0 = Math.floor(src);
+    const f = src - i0;
+    out[i] = x[i0] * (1 - f) + (x[i0 + 1] || 0) * f;
+  }
+  return out;
+}
+
+/* Trim leading/trailing silence for smaller upload */
+function trimSilence(x, sr) {
+  const win = Math.floor(sr * 0.02);
+  let start = 0, end = x.length;
+  const thresh = 0.012;
+  for (let i = 0; i < x.length - win; i += win) {
+    let e = 0;
+    for (let j = 0; j < win; j++) e += x[i + j] * x[i + j];
+    if (Math.sqrt(e / win) > thresh) { start = Math.max(0, i - win); break; }
+  }
+  for (let i = x.length - win; i > start; i -= win) {
+    let e = 0;
+    for (let j = 0; j < win; j++) e += x[i + j] * x[i + j];
+    if (Math.sqrt(e / win) > thresh) { end = Math.min(x.length, i + win * 2); break; }
+  }
+  return x.subarray(start, end);
+}
+
+/* ========== Gemini mit Retry ========== */
+async function askGemini(id, attempt = 1) {
+  if (!isOnline()) {
+    msg("Offline – Gemini nicht erreichbar.");
+    return;
+  }
+  const key = ls.get("gkey");
+  if (!key) {
+    msg("Bitte zuerst den Gemini-API-Key eintragen.", "info");
+    return;
+  }
+  const clips = await getAll();
+  const c = clips.find(k => k.id === id);
+  if (!c || c.deleted) return;
+
+  msg("Gemini analysiert …" + (attempt > 1 ? " (Versuch " + attempt + ")" : ""), "progress");
+  try {
+    let x = await getPCM(c);
+    x = trimSilence(x, SR);
+    x = downsample(x, SR, GEMINI_SR);
+    // Max. ~25 s für die API behalten
+    const maxSamples = GEMINI_SR * 25;
+    if (x.length > maxSamples) x = x.subarray(0, maxSamples);
+
+    const wav = toWav(x, GEMINI_SR);
+    const b64 = await new Promise(r => {
+      const f = new FileReader();
+      f.onload = () => r(f.result.split(",")[1]);
+      f.readAsDataURL(new Blob([wav], { type: "audio/wav" }));
+    });
+
+    const found = (c.notes || []).map(n => nn(n.m)).join(" ") || "keine";
+    // Einfache Pitch-Class-Hinweise für Akkorde
+    const pcs = [...new Set((c.notes || []).map(n => n.m % 12))].sort((a, b) => a - b);
+    const pcHint = pcs.length ? "Erkannte Tonklassen (0=C): " + pcs.join(",") : "";
+
+    const prompt = `Du bist ein erfahrener Gitarrenlehrer. Analysiere diese Aufnahme eines kurzen Gitarrenstücks. Gib NUR gültiges JSON zurück (kein Markdown). Alle Texte auf Deutsch, kurz und für Einsteiger verständlich. Felder:
 "name": einprägsamer Titel mit 2 bis 4 Wörtern, der Spielart und Stimmung widerspiegelt (z. B. "Sanfter Regen in Moll"),
 "stimmung": Emotion in 1 bis 2 Wörtern,
 "spielart": Spielweise in 1 bis 3 Wörtern (z. B. Fingerpicking, Strumming, Lead-Melodie),
@@ -189,137 +807,573 @@ async function askGemini(id){
 "ablauf": Liste mit Schritten zum Nachspielen in Reihenfolge (Anschlag, Rhythmus, Wechsel),
 "besonderheiten": Liste (Techniken wie Hammer-on, Slide, Bending, Vibrato, Dämpfen),
 "tipps": Liste mit Übungstipps.
-Automatisch erkannte Töne (einstimmig, können falsch sein, korrigiere sie bei Bedarf): ${found}`;
-    const model=ls.get('gmodel')||'gemini-2.5-flash';
-    const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':key},body:JSON.stringify({contents:[{parts:[{text:prompt},{inline_data:{mime_type:'audio/wav',data:b64}}]}],generationConfig:{responseMimeType:'application/json',temperature:0.7}})});
-    const j=await r.json();
-    if(!r.ok)throw new Error(j.error&&j.error.message||r.status);
-    const txt=j.candidates[0].content.parts.map(p=>p.text||'').join('').replace(/```json|```/g,'').trim();
-    c.ai=JSON.parse(txt);
-    if(c.ai.name&&!c.renamed)c.name=String(c.ai.name).slice(0,60);
-    await put(c);msg('');
-  }catch(e){msg('Gemini-Fehler: '+e.message)}
+Automatisch erkannte Töne (einstimmig, können falsch sein, korrigiere sie bei Bedarf): ${found}
+${pcHint}`;
+
+    const model = ls.get("gmodel") || "gemini-2.5-flash";
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 90000);
+
+    const r = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-goog-api-key": key
+        },
+        body: JSON.stringify({
+          contents: [{
+            parts: [
+              { text: prompt },
+              { inline_data: { mime_type: "audio/wav", data: b64 } }
+            ]
+          }],
+          generationConfig: {
+            responseMimeType: "application/json",
+            temperature: 0.7
+          }
+        }),
+        signal: controller.signal
+      }
+    );
+    clearTimeout(timeout);
+
+    const j = await r.json();
+    if (!r.ok) {
+      const errMsg = (j.error && j.error.message) || ("HTTP " + r.status);
+      if ((r.status === 429 || r.status >= 500) && attempt < 3) {
+        const delay = 800 * Math.pow(2, attempt - 1);
+        msg("Temporärer Fehler, warte " + (delay / 1000) + " s …", "progress");
+        await new Promise(r => setTimeout(r, delay));
+        return askGemini(id, attempt + 1);
+      }
+      throw new Error(errMsg);
+    }
+
+    const txt = (j.candidates?.[0]?.content?.parts || [])
+      .map(p => p.text || "")
+      .join("")
+      .replace(/```json|```/g, "")
+      .trim();
+    c.ai = JSON.parse(txt);
+    if (c.ai.name && !c.renamed) c.name = String(c.ai.name).slice(0, 60);
+    await put(c);
+    msg("");
+  } catch (e) {
+    if (e.name === "AbortError") msg("Gemini-Timeout – bitte erneut versuchen.");
+    else msg("Gemini-Fehler: " + e.message);
+  }
   await render();
 }
 
-/* Wiedergabe */
-let CL={},ac;const PCM={};
-const audioCtx=()=>{if(!ac)ac=new(window.AudioContext||window.webkitAudioContext)();if(ac.state==='suspended')ac.resume();return ac};
-function pluck(m){
-  const c=audioCtx(),t=c.currentTime,f=440*2**((m-69)/12),o=c.createOscillator(),fl=c.createBiquadFilter(),g=c.createGain();
-  o.type='sawtooth';o.frequency.value=f;fl.type='lowpass';
-  fl.frequency.setValueAtTime(Math.min(f*8,8000),t);fl.frequency.exponentialRampToValueAtTime(f*1.5,t+0.7);
-  g.gain.setValueAtTime(0.0001,t);g.gain.exponentialRampToValueAtTime(0.5,t+0.01);g.gain.exponentialRampToValueAtTime(0.0001,t+1.6);
-  o.connect(fl);fl.connect(g);g.connect(c.destination);o.start(t);o.stop(t+1.7);
-}
-async function playOrig(c,n){
-  const ctx=audioCtx();if(!PCM[c.id])PCM[c.id]=await decode(c.blob);
-  const x=PCM[c.id],st=Math.max(0,Math.floor((n.t-0.03)*SR)),en=Math.min(x.length,Math.floor((n.t+Math.max(n.d,0.25)+0.1)*SR));
-  const b=ctx.createBuffer(1,en-st,SR);b.copyToChannel(x.slice(st,en),0);
-  const src=ctx.createBufferSource();src.buffer=b;src.connect(ctx.destination);src.start();
-}
-async function playNote(g){
-  const c=CL[+g.closest('.clip').dataset.id],n=c&&c.notes&&c.notes[+g.dataset.i];if(!n)return;
-  g.classList.add('on');setTimeout(()=>g.classList.remove('on'),350);
-  try{if($('#playMode').value==='orig')await playOrig(c,n);else pluck(n.m)}catch(e){msg('Wiedergabe fehlgeschlagen: '+e.message)}
+/* ========== Wiedergabe ========== */
+let ac;
+const audioCtx = () => {
+  if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)();
+  if (ac.state === "suspended") ac.resume();
+  return ac;
+};
+
+function pluck(m) {
+  const c = audioCtx();
+  const t = c.currentTime;
+  const f = 440 * 2 ** ((m - 69) / 12);
+  const o = c.createOscillator();
+  const fl = c.createBiquadFilter();
+  const g = c.createGain();
+  o.type = "sawtooth";
+  o.frequency.value = f;
+  fl.type = "lowpass";
+  fl.frequency.setValueAtTime(Math.min(f * 8, 8000), t);
+  fl.frequency.exponentialRampToValueAtTime(f * 1.5, t + 0.7);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.45, t + 0.01);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 1.5);
+  o.connect(fl);
+  fl.connect(g);
+  g.connect(c.destination);
+  o.start(t);
+  o.stop(t + 1.6);
 }
 
-/* Visuelle Darstellung */
-function chordSvg(c){
-  const f=c.bunde||[],fi=c.finger||[],pos=f.filter(n=>n>0),max=Math.max(0,...pos),min=pos.length?Math.min(...pos):1,base=max>4?min:1;
-  let s=`<svg viewBox="0 0 90 114" width="90" role="img" aria-label="Akkord ${esc(String(c.name||''))}"><text x="45" y="12" text-anchor="middle" class="cn">${esc(String(c.name||''))}</text>`;
-  for(let j=0;j<=5;j++)s+=`<line x1="14" y1="${32+j*16}" x2="74" y2="${32+j*16}" class="${j===0&&base===1?'nut':'gl'}"/>`;
-  for(let i=0;i<6;i++){
-    const x=14+i*12;s+=`<line x1="${x}" y1="32" x2="${x}" y2="112" class="gl"/>`;
-    if(f[i]===-1)s+=`<text x="${x}" y="27" text-anchor="middle" class="mk">×</text>`;
-    else if(f[i]===0)s+=`<circle cx="${x}" cy="23" r="3.2" class="op"/>`;
-    else if(f[i]>0){
-      const y=32+(f[i]-base)*16+8;
-      if(f[i]-base<5)s+=`<circle cx="${x}" cy="${y}" r="5.5" class="dot"/>`+(fi[i]>0?`<text x="${x}" y="${y+3.5}" text-anchor="middle" class="fn">${fi[i]}</text>`:'');
+async function playOrig(c, n) {
+  const ctx = audioCtx();
+  const x = await getPCM(c);
+  const st = Math.max(0, Math.floor((n.t - 0.03) * SR));
+  const en = Math.min(x.length, Math.floor((n.t + Math.max(n.d, 0.25) + 0.1) * SR));
+  const b = ctx.createBuffer(1, en - st, SR);
+  b.copyToChannel(x.slice(st, en), 0);
+  const src = ctx.createBufferSource();
+  src.buffer = b;
+  src.connect(ctx.destination);
+  src.start();
+}
+
+async function playNote(g) {
+  const clipEl = g.closest(".clip");
+  if (!clipEl) return;
+  const c = CL[+clipEl.dataset.id];
+  const n = c && c.notes && c.notes[+g.dataset.i];
+  if (!n) return;
+  g.classList.add("on");
+  setTimeout(() => g.classList.remove("on"), 350);
+  try {
+    if ($("#playMode").value === "orig") await playOrig(c, n);
+    else pluck(n.m);
+  } catch (e) {
+    msg("Wiedergabe fehlgeschlagen: " + e.message);
+  }
+}
+
+/* Sequenz-Wiedergabe der erkannten Noten */
+let seqPlaying = false;
+async function playSequence(id) {
+  if (seqPlaying) return;
+  const c = CL[id];
+  if (!c || !c.notes || !c.notes.length) return;
+  seqPlaying = true;
+  msg("Spiele erkannte Töne …", "info");
+  const mode = $("#playMode").value;
+  try {
+    for (const n of c.notes) {
+      if (!seqPlaying) break;
+      if (mode === "orig") await playOrig(c, n);
+      else pluck(n.m);
+      await new Promise(r => setTimeout(r, Math.max(120, n.d * 1000 * 0.85)));
+    }
+  } finally {
+    seqPlaying = false;
+    msg("");
+  }
+}
+
+/* ========== Metronom ========== */
+let metroTimer = null;
+function startMetro() {
+  stopMetro();
+  const ctx = audioCtx();
+  const click = () => {
+    const t = ctx.currentTime;
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.frequency.value = 880;
+    o.type = "square";
+    g.gain.setValueAtTime(0.15, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
+    o.connect(g);
+    g.connect(ctx.destination);
+    o.start(t);
+    o.stop(t + 0.06);
+  };
+  click();
+  metroTimer = setInterval(click, 60000 / 90);
+}
+function stopMetro() {
+  if (metroTimer) {
+    clearInterval(metroTimer);
+    metroTimer = null;
+  }
+}
+
+/* ========== Tabs & Akkorde ========== */
+function tabCols(ns) {
+  let prev = null;
+  return ns.map(n => {
+    let best = null;
+    OPEN.forEach((o, s) => {
+      const f = n.m - o;
+      if (f >= 0 && f <= 15) {
+        const sc = prev === null ? f : Math.abs(f - prev) + f * 0.3;
+        if (!best || sc < best.sc) best = { s, f, sc };
+      }
+    });
+    if (best) prev = best.f;
+    return best;
+  });
+}
+
+function makeTab(ns) {
+  const cols = tabCols(ns);
+  let out = "";
+  for (let i = 0; i < cols.length; i += 10) {
+    const part = cols.slice(i, i + 10);
+    out += LAB.map((l, s) =>
+      l + "|" + part.map(c => (c && c.s === s ? ("-" + c.f).padEnd(3, "-") : "---")).join("") + "|"
+    ).join("\n") + "\n\n";
+  }
+  return out.trim();
+}
+
+function chordSvg(c) {
+  const f = c.bunde || [];
+  const fi = c.finger || [];
+  const pos = f.filter(n => n > 0);
+  const max = Math.max(0, ...pos);
+  const min = pos.length ? Math.min(...pos) : 1;
+  const base = max > 4 ? min : 1;
+  let s = `<svg viewBox="0 0 90 114" width="90" role="img" aria-label="Akkord ${esc(String(c.name || ""))}"><text x="45" y="12" text-anchor="middle" class="cn">${esc(String(c.name || ""))}</text>`;
+  for (let j = 0; j <= 5; j++) {
+    s += `<line x1="14" y1="${32 + j * 16}" x2="74" y2="${32 + j * 16}" class="${j === 0 && base === 1 ? "nut" : "gl"}"/>`;
+  }
+  for (let i = 0; i < 6; i++) {
+    const x = 14 + i * 12;
+    s += `<line x1="${x}" y1="32" x2="${x}" y2="112" class="gl"/>`;
+    if (f[i] === -1) s += `<text x="${x}" y="27" text-anchor="middle" class="mk">×</text>`;
+    else if (f[i] === 0) s += `<circle cx="${x}" cy="23" r="3.2" class="op"/>`;
+    else if (f[i] > 0) {
+      const y = 32 + (f[i] - base) * 16 + 8;
+      if (f[i] - base < 5) {
+        s += `<circle cx="${x}" cy="${y}" r="5.5" class="dot"/>`;
+        if (fi[i] > 0) s += `<text x="${x}" y="${y + 3.5}" text-anchor="middle" class="fn">${fi[i]}</text>`;
+      }
     }
   }
-  if(base>1)s+=`<text x="78" y="${32+8+4}" class="mk">${base}.</text>`;
-  return s+'</svg>';
-}
-function tabSvg(ns){
-  const cols=tabCols(ns),per=8,cw=36,L=22,W=L+per*cw+6,rows=[];
-  for(let i=0;i<cols.length;i+=per){
-    const part=cols.slice(i,i+per),w=L+part.length*cw+2;
-    let s=`<svg viewBox="0 0 ${W} 116" role="img" aria-label="Tabulatur">`;
-    LAB.forEach((l,k)=>{const y=12+k*15;s+=`<text x="5" y="${y+4}" class="mk">${l}</text><line x1="${L}" y1="${y}" x2="${w}" y2="${y}" class="gl"/>`});
-    part.forEach((c,j)=>{
-      const x=L+j*cw+cw/2,n=ns[i+j];
-      s+=`<g class="nt" data-i="${i+j}" tabindex="0" role="button" aria-label="Ton ${nn(n.m)} abspielen"><rect x="${x-cw/2}" y="0" width="${cw}" height="116" fill="transparent"/>`;
-      if(c){const y=12+c.s*15;s+=`<circle cx="${x}" cy="${y}" r="7.2" class="tb"/><text x="${x}" y="${y+3.6}" text-anchor="middle" class="tn">${c.f}</text>`}
-      const bw=Math.min(cw-6,Math.max(6,n.d*40));
-      s+=`<rect x="${x-bw/2}" y="98" width="${bw}" height="3" rx="1.5" class="du"/><text x="${x}" y="112" text-anchor="middle" class="mk">${nn(n.m)}</text></g>`;
-    });
-    rows.push(s+'</svg>');
-  }
-  return `<div class="tabs">${rows.join('')}</div>`;
-}
-const li=x=>Array.isArray(x)&&x.length?x.map(t=>`<li>${esc(String(t))}</li>`).join(''):'';
-function aiParts(a){
-  if(!a)return['',''];
-  if(typeof a==='string')return['',`<div class="ai">${esc(a)}</div>`];
-  const tags=[a.stimmung,a.spielart,a.tonart,a.tempo_bpm?a.tempo_bpm+' BPM':''].filter(Boolean).map(t=>`<span>${esc(String(t))}</span>`).join('');
-  const top=`<div class="tags">${tags}</div>`+(a.akkorde&&a.akkorde.length?`<h3>Akkorde in Reihenfolge</h3><div class="chords">${a.akkorde.map(chordSvg).join('')}</div>`:'');
-  const bot=(li(a.ablauf)?`<h3>So spielst du es nach</h3><ol>${li(a.ablauf)}</ol>`:'')+(li(a.besonderheiten)?`<h3>Besonderheiten</h3><ul>${li(a.besonderheiten)}</ul>`:'')+(li(a.tipps)?`<h3>Tipps</h3><ul>${li(a.tipps)}</ul>`:'');
-  return[top,bot];
-}
-function aiText(a){
-  if(!a)return'';if(typeof a==='string')return a;
-  return[a.name,[a.stimmung,a.spielart,a.tonart,a.tempo_bpm&&a.tempo_bpm+' BPM'].filter(Boolean).join(', '),(a.akkorde||[]).map(c=>c.name+' ('+(c.bunde||[]).map(n=>n<0?'x':n).join('-')+')').join('  '),(a.ablauf||[]).map((t,i)=>(i+1)+'. '+t).join('\n'),(a.tipps||[]).join('\n')].filter(Boolean).join('\n\n');
+  if (base > 1) s += `<text x="78" y="${32 + 8 + 4}" class="mk">${base}.</text>`;
+  return s + "</svg>";
 }
 
-/* Anzeige */
-const esc=s=>s.replace(/[&<>]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[m]));
-const urls=[];
-async function render(){
-  urls.splice(0).forEach(URL.revokeObjectURL);
-  const clips=(await getAll()).sort((a,b)=>b.id-a.id),showTab=$('#tabOpt').checked;
-  CL={};clips.forEach(c=>CL[c.id]=c);
-  $('#list').innerHTML=clips.length?clips.map(c=>{
-    const u=URL.createObjectURL(c.blob);urls.push(u);
-    const notes=c.notes?(c.notes.length?c.notes.map(n=>nn(n.m)).join(' '):'Keine Töne erkannt'):'Noch nicht analysiert';
-    return `<article class="clip" data-id="${c.id}">
-      <input class="name" type="text" value="${esc(c.name).replace(/"/g,'&quot;')}" aria-label="Titel">
-      <div class="meta">${new Date(c.id).toLocaleString('de-DE')}</div>
-      <audio controls src="${u}"></audio>
-      <div class="btns">
-        <button class="b" data-a="notes">Töne neu erkennen</button>
-        <button class="b p" data-a="ai">Neu analysieren (Gemini)</button>
-        <button class="b" data-a="copy">Kopieren</button>
-        <button class="b d" data-a="del">Löschen</button>
-      </div>
-      ${aiParts(c.ai)[0]}
-      ${showTab&&c.notes&&c.notes.length?`<h3>Tabulatur</h3><p class="hint">Zahl im Kreis = Bund, Zeile = Saite (unten tiefes E). Balken unter den Linien = Tonlänge. Tippe auf einen Ton, um ihn zu hören.</p>${tabSvg(c.notes)}`:''}
-      ${aiParts(c.ai)[1]}
-      <div class="meta">Erkannte Töne: ${esc(notes)}</div>
-    </article>`}).join(''):'<p class="empty">Noch keine Aufnahmen. Tippe auf den Knopf und spiel los.</p>';
+function tabSvg(ns) {
+  const cols = tabCols(ns);
+  const per = 8;
+  const cw = 36;
+  const L = 22;
+  const W = L + per * cw + 6;
+  const rows = [];
+  for (let i = 0; i < cols.length; i += per) {
+    const part = cols.slice(i, i + per);
+    const w = L + part.length * cw + 2;
+    let s = `<svg viewBox="0 0 ${W} 116" role="img" aria-label="Tabulatur">`;
+    LAB.forEach((l, k) => {
+      const y = 12 + k * 15;
+      s += `<text x="5" y="${y + 4}" class="mk">${l}</text><line x1="${L}" y1="${y}" x2="${w}" y2="${y}" class="gl"/>`;
+    });
+    part.forEach((c, j) => {
+      const x = L + j * cw + cw / 2;
+      const n = ns[i + j];
+      s += `<g class="nt" data-i="${i + j}" tabindex="0" role="button" aria-label="Ton ${nn(n.m)} abspielen"><rect x="${x - cw / 2}" y="0" width="${cw}" height="116" fill="transparent"/>`;
+      if (c) {
+        const y = 12 + c.s * 15;
+        s += `<circle cx="${x}" cy="${y}" r="7.2" class="tb"/><text x="${x}" y="${y + 3.6}" text-anchor="middle" class="tn">${c.f}</text>`;
+      }
+      const bw = Math.min(cw - 6, Math.max(6, n.d * 40));
+      s += `<rect x="${x - bw / 2}" y="98" width="${bw}" height="3" rx="1.5" class="du"/><text x="${x}" y="112" text-anchor="middle" class="mk">${nn(n.m)}</text></g>`;
+    });
+    rows.push(s + "</svg>");
+  }
+  return `<div class="tabs">${rows.join("")}</div>`;
 }
-$('#list').addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&e.target.classList&&e.target.classList.contains('nt')){e.preventDefault();playNote(e.target)}});
-$('#list').addEventListener('click',async e=>{
-  const g=e.target.closest('.nt');if(g){playNote(g);return}
-  const b=e.target.closest('button');if(!b)return;
-  const id=+b.closest('.clip').dataset.id,a=b.dataset.a;
-  if(a==='notes')analyze(id);
-  else if(a==='ai')askGemini(id);
-  else if(a==='del'){if(confirm('Aufnahme löschen?')){await del(id);render()}}
-  else if(a==='copy'){
-    const c=(await getAll()).find(k=>k.id===id);
-    const t=[c.name,(c.notes||[]).map(n=>nn(n.m)).join(' '),$('#tabOpt').checked&&c.notes?makeTab(c.notes):'',aiText(c.ai)].filter(Boolean).join('\n\n');
-    try{await navigator.clipboard.writeText(t);msg('Kopiert.')}catch(err){msg('Kopieren nicht möglich.')}
+
+/* ========== Wellenform ========== */
+function wavePeaks(x, buckets = 80) {
+  const step = Math.floor(x.length / buckets) || 1;
+  const peaks = [];
+  for (let i = 0; i < buckets; i++) {
+    let max = 0;
+    const start = i * step;
+    const end = Math.min(x.length, start + step);
+    for (let j = start; j < end; j++) {
+      const v = Math.abs(x[j]);
+      if (v > max) max = v;
+    }
+    peaks.push(max);
+  }
+  return peaks;
+}
+
+function drawWave(canvas, peaks) {
+  const ctx = canvas.getContext("2d");
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth;
+  const h = canvas.clientHeight;
+  canvas.width = w * dpr;
+  canvas.height = h * dpr;
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, w, h);
+  const mid = h / 2;
+  const barW = w / peaks.length;
+  ctx.fillStyle = "#1D6F6A";
+  peaks.forEach((p, i) => {
+    const bh = Math.max(1, p * mid * 1.8);
+    ctx.fillRect(i * barW, mid - bh, Math.max(1, barW - 0.5), bh * 2);
+  });
+}
+
+/* ========== AI-Darstellung ========== */
+const li = x => Array.isArray(x) && x.length ? x.map(t => `<li>${esc(String(t))}</li>`).join("") : "";
+function aiParts(a) {
+  if (!a) return ["", ""];
+  if (typeof a === "string") return ["", `<div class="ai">${esc(a)}</div>`];
+  const tags = [a.stimmung, a.spielart, a.tonart, a.tempo_bpm ? a.tempo_bpm + " BPM" : ""]
+    .filter(Boolean)
+    .map(t => `<span>${esc(String(t))}</span>`)
+    .join("");
+  const top = `<div class="tags">${tags}</div>` +
+    (a.akkorde && a.akkorde.length
+      ? `<h3>Akkorde in Reihenfolge</h3><div class="chords">${a.akkorde.map(chordSvg).join("")}</div>`
+      : "");
+  const bot =
+    (li(a.ablauf) ? `<h3>So spielst du es nach</h3><ol>${li(a.ablauf)}</ol>` : "") +
+    (li(a.besonderheiten) ? `<h3>Besonderheiten</h3><ul>${li(a.besonderheiten)}</ul>` : "") +
+    (li(a.tipps) ? `<h3>Tipps</h3><ul>${li(a.tipps)}</ul>` : "");
+  return [top, bot];
+}
+function aiText(a) {
+  if (!a) return "";
+  if (typeof a === "string") return a;
+  return [
+    a.name,
+    [a.stimmung, a.spielart, a.tonart, a.tempo_bpm && a.tempo_bpm + " BPM"].filter(Boolean).join(", "),
+    (a.akkorde || []).map(c => c.name + " (" + (c.bunde || []).map(n => (n < 0 ? "x" : n)).join("-") + ")").join("  "),
+    (a.ablauf || []).map((t, i) => (i + 1) + ". " + t).join("\n"),
+    (a.tipps || []).join("\n")
+  ].filter(Boolean).join("\n\n");
+}
+
+/* ========== MIDI-Export (Typ-0, sehr einfach) ========== */
+function notesToMidi(notes) {
+  // Delta-time encoding (variable length)
+  const writeVar = (n) => {
+    const bytes = [];
+    let v = n & 0x7f;
+    while ((n >>= 7)) {
+      bytes.unshift(v);
+      v = (n & 0x7f) | 0x80;
+    }
+    bytes.unshift(v);
+    return bytes;
+  };
+  const ticksPerBeat = 480;
+  const tempo = 500000; // 120 BPM
+  const events = [];
+  // Tempo meta
+  events.push({ t: 0, data: [0xff, 0x51, 0x03, (tempo >> 16) & 0xff, (tempo >> 8) & 0xff, tempo & 0xff] });
+  notes.forEach(n => {
+    const startTick = Math.round(n.t * 2 * ticksPerBeat); // approx 120 BPM
+    const durTick = Math.max(30, Math.round(n.d * 2 * ticksPerBeat));
+    events.push({ t: startTick, data: [0x90, n.m, 80] });
+    events.push({ t: startTick + durTick, data: [0x80, n.m, 0] });
+  });
+  events.sort((a, b) => a.t - b.t);
+  let last = 0;
+  const track = [];
+  events.forEach(e => {
+    track.push(...writeVar(e.t - last));
+    track.push(...e.data);
+    last = e.t;
+  });
+  track.push(0x00, 0xff, 0x2f, 0x00); // end of track
+
+  const trackLen = track.length;
+  const hdr = [
+    0x4d, 0x54, 0x68, 0x64, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00, 0x01,
+    (ticksPerBeat >> 8) & 0xff, ticksPerBeat & 0xff,
+    0x4d, 0x54, 0x72, 0x6b,
+    (trackLen >> 24) & 0xff, (trackLen >> 16) & 0xff, (trackLen >> 8) & 0xff, trackLen & 0xff
+  ];
+  return new Uint8Array([...hdr, ...track]);
+}
+
+function downloadBlob(data, filename, mime) {
+  const url = URL.createObjectURL(new Blob([data], { type: mime }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+/* ========== Soft-Delete + Toast ========== */
+let toastTimer = null;
+function showToast(text, undoFn) {
+  const el = $("#toast");
+  el.innerHTML = `<span>${esc(text)}</span>`;
+  if (undoFn) {
+    const btn = document.createElement("button");
+    btn.textContent = "Rückgängig";
+    btn.onclick = () => {
+      undoFn();
+      hideToast();
+    };
+    el.appendChild(btn);
+  }
+  el.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(hideToast, SOFT_DELETE_MS);
+}
+function hideToast() {
+  $("#toast").classList.remove("show");
+  clearTimeout(toastTimer);
+}
+
+const pendingHardDelete = new Map();
+
+async function softDelete(id) {
+  const clips = await getAll();
+  const c = clips.find(k => k.id === id);
+  if (!c) return;
+  c.deleted = Date.now();
+  await put(c);
+  await render();
+  const hard = setTimeout(async () => {
+    pendingHardDelete.delete(id);
+    await del(id);
+    PCM.delete(id);
+    await render();
+  }, SOFT_DELETE_MS);
+  pendingHardDelete.set(id, hard);
+  showToast("Aufnahme gelöscht", async () => {
+    clearTimeout(hard);
+    pendingHardDelete.delete(id);
+    c.deleted = null;
+    await put(c);
+    await render();
+  });
+}
+
+/* ========== Render ========== */
+const urls = [];
+let CL = {};
+
+async function render() {
+  urls.splice(0).forEach(URL.revokeObjectURL);
+  const all = await getAll();
+  const clips = all
+    .filter(c => !c.deleted || (Date.now() - c.deleted < SOFT_DELETE_MS))
+    .sort((a, b) => b.id - a.id);
+  CL = {};
+  clips.forEach(c => (CL[c.id] = c));
+  const showTab = $("#tabOpt").checked;
+
+  $("#list").innerHTML = clips.length
+    ? clips.map(c => {
+        const u = URL.createObjectURL(c.blob);
+        urls.push(u);
+        const notesStr = c.notes
+          ? (c.notes.length ? c.notes.map(n => nn(n.m)).join(" ") : "Keine Töne erkannt")
+          : "Noch nicht analysiert";
+        const isDel = !!c.deleted;
+        return `<article class="clip${isDel ? " deleted" : ""}" data-id="${c.id}">
+          <input class="name" type="text" value="${esc(c.name).replace(/"/g, "&quot;")}" aria-label="Titel" ${isDel ? "disabled" : ""}>
+          <div class="meta">${new Date(c.id).toLocaleString("de-DE")}</div>
+          <canvas class="wave" height="36" data-id="${c.id}" aria-hidden="true"></canvas>
+          <audio controls src="${u}" preload="metadata"></audio>
+          <div class="btns">
+            <button class="b" data-a="notes" ${isDel ? "disabled" : ""}>Töne neu erkennen</button>
+            <button class="b p" data-a="ai" ${isDel || !isOnline() ? "disabled" : ""}>Neu analysieren (Gemini)</button>
+            <button class="b" data-a="seq" ${isDel || !c.notes || !c.notes.length ? "disabled" : ""}>Abspielen (erkannt)</button>
+            <button class="b" data-a="midi" ${isDel || !c.notes || !c.notes.length ? "disabled" : ""}>MIDI</button>
+            <button class="b" data-a="copy" ${isDel ? "disabled" : ""}>Kopieren</button>
+            <button class="b d" data-a="del" ${isDel ? "disabled" : ""}>Löschen</button>
+          </div>
+          ${aiParts(c.ai)[0]}
+          ${showTab && c.notes && c.notes.length
+            ? `<h3>Tabulatur</h3><p class="hint">Zahl im Kreis = Bund, Zeile = Saite (unten tiefes E). Balken = Tonlänge. Tippe auf einen Ton, um ihn zu hören.</p>${tabSvg(c.notes)}`
+            : ""}
+          ${aiParts(c.ai)[1]}
+          <div class="meta">Erkannte Töne: ${esc(notesStr)}</div>
+        </article>`;
+      }).join("")
+    : '<p class="empty">Noch keine Aufnahmen. Tippe auf den Knopf und spiel los.</p>';
+
+  // Wellenformen asynchron zeichnen
+  clips.forEach(async c => {
+    if (c.deleted) return;
+    try {
+      const x = await getPCM(c);
+      const canvas = document.querySelector(`canvas.wave[data-id="${c.id}"]`);
+      if (canvas) drawWave(canvas, wavePeaks(x));
+    } catch {}
+  });
+}
+
+/* ========== Event-Delegation ========== */
+$("#list").addEventListener("keydown", e => {
+  if ((e.key === "Enter" || e.key === " ") && e.target.classList?.contains("nt")) {
+    e.preventDefault();
+    playNote(e.target);
   }
 });
-$('#list').addEventListener('change',async e=>{
-  if(!e.target.classList.contains('name'))return;
-  const id=+e.target.closest('.clip').dataset.id,c=(await getAll()).find(k=>k.id===id);c.name=e.target.value;c.renamed=true;await put(c);
+
+$("#list").addEventListener("click", async e => {
+  const g = e.target.closest(".nt");
+  if (g) {
+    playNote(g);
+    return;
+  }
+  const b = e.target.closest("button");
+  if (!b || b.disabled) return;
+  const id = +b.closest(".clip").dataset.id;
+  const a = b.dataset.a;
+  if (a === "notes") analyze(id);
+  else if (a === "ai") askGemini(id);
+  else if (a === "seq") playSequence(id);
+  else if (a === "midi") {
+    const c = CL[id];
+    if (c?.notes?.length) {
+      const midi = notesToMidi(c.notes);
+      const name = (c.name || "gitarre").replace(/[^\w\-äöüÄÖÜß ]+/g, "").trim() || "gitarre";
+      downloadBlob(midi, name + ".mid", "audio/midi");
+      msg("MIDI heruntergeladen.", "info");
+    }
+  } else if (a === "del") softDelete(id);
+  else if (a === "copy") {
+    const c = (await getAll()).find(k => k.id === id);
+    if (!c) return;
+    const t = [
+      c.name,
+      (c.notes || []).map(n => nn(n.m)).join(" "),
+      $("#tabOpt").checked && c.notes ? makeTab(c.notes) : "",
+      aiText(c.ai)
+    ].filter(Boolean).join("\n\n");
+    try {
+      await navigator.clipboard.writeText(t);
+      msg("Kopiert.", "info");
+    } catch {
+      msg("Kopieren nicht möglich.");
+    }
+  }
 });
-$('#tabOpt').checked=ls.get('tabs')!=='0';
-$('#playMode').value=ls.get('pm')||'syn';$('#playMode').onchange=()=>ls.set('pm',$('#playMode').value);
-$('#tabOpt').onchange=()=>{ls.set('tabs',$('#tabOpt').checked?'1':'0');render()};
-$('#gkey').value=ls.get('gkey')||'';$('#gkey').onchange=()=>ls.set('gkey',$('#gkey').value.trim());
-$('#gmodel').value=ls.get('gmodel')||'';$('#gmodel').onchange=()=>ls.set('gmodel',$('#gmodel').value.trim());
+
+$("#list").addEventListener("change", async e => {
+  if (!e.target.classList.contains("name")) return;
+  const id = +e.target.closest(".clip").dataset.id;
+  const c = (await getAll()).find(k => k.id === id);
+  if (!c) return;
+  c.name = e.target.value;
+  c.renamed = true;
+  await put(c);
+});
+
+/* ========== Einstellungen & Offline ========== */
+$("#tabOpt").checked = ls.get("tabs") !== "0";
+$("#playMode").value = ls.get("pm") || "syn";
+$("#metroOpt").checked = ls.get("metro") === "1";
+$("#playMode").onchange = () => ls.set("pm", $("#playMode").value);
+$("#tabOpt").onchange = () => {
+  ls.set("tabs", $("#tabOpt").checked ? "1" : "0");
+  render();
+};
+$("#metroOpt").onchange = () => ls.set("metro", $("#metroOpt").checked ? "1" : "0");
+$("#gkey").value = ls.get("gkey") || "";
+$("#gkey").onchange = () => ls.set("gkey", $("#gkey").value.trim());
+$("#gmodel").value = ls.get("gmodel") || "";
+$("#gmodel").onchange = () => ls.set("gmodel", $("#gmodel").value.trim());
+
+function updateOnline() {
+  const el = $("#offline");
+  if (isOnline()) el.classList.remove("show");
+  else el.classList.add("show");
+  // Buttons neu rendern, damit Gemini-Buttons disabled werden
+  render();
+}
+window.addEventListener("online", updateOnline);
+window.addEventListener("offline", updateOnline);
+updateOnline();
+
+/* Initial */
 render();
-</script></body></html>
+})();
+</script>
+</body>
+</html>
