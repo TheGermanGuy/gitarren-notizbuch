@@ -939,17 +939,18 @@ async function askGemini(id, attempt) {
     const pcs = Array.from(new Set((c.notes || []).map(n => n.m % 12))).sort((a, b) => a - b);
     const pcHint = pcs.length ? "Erkannte Tonklassen (0=C): " + pcs.join(",") : "";
 
-    const prompt = "Du bist ein erfahrener Gitarrenlehrer. Analysiere diese Aufnahme eines kurzen Gitarrenstücks. Gib NUR gültiges JSON zurück (kein Markdown). Alle Texte auf Deutsch, kurz und für Einsteiger verständlich. Felder:\\n" +
-"\\"name\\": einprägsamer Titel mit 2 bis 4 Wörtern, der Spielart und Stimmung widerspiegelt (z. B. \\"Sanfter Regen in Moll\\"),\\n" +
-"\\"stimmung\\": Emotion in 1 bis 2 Wörtern,\\n" +
-"\\"spielart\\": Spielweise in 1 bis 3 Wörtern (z. B. Fingerpicking, Strumming, Lead-Melodie),\\n" +
-"\\"tonart\\": Tonart/Skala,\\n" +
-"\\"tempo_bpm\\": Zahl,\\n" +
-"\\"akkorde\\": Liste der Akkorde in Spielreihenfolge, je {\\"name\\":\\"Am\\",\\"bunde\\":[6 Zahlen von tiefer E- bis hoher e-Saite; -1 = nicht spielen, 0 = leer, sonst Bundnummer],\\"finger\\":[6 Zahlen, 0 = kein Finger, 1 = Zeigefinger bis 4 = kleiner Finger]}. Leere Liste, falls keine Akkorde gespielt werden,\\n" +
-"\\"ablauf\\": Liste mit Schritten zum Nachspielen in Reihenfolge (Anschlag, Rhythmus, Wechsel),\\n" +
-"\\"besonderheiten\\": Liste (Techniken wie Hammer-on, Slide, Bending, Vibrato, Dämpfen),\\n" +
-"\\"tipps\\": Liste mit Übungstipps.\\n" +
-"Automatisch erkannte Töne (einstimmig, mit Konfidenz, können falsch sein, korrigiere sie bei Bedarf): " + found + "\\n" + pcHint;
+    const prompt = `Du bist ein erfahrener Gitarrenlehrer. Analysiere diese Aufnahme eines kurzen Gitarrenstücks. Gib NUR gültiges JSON zurück (kein Markdown). Alle Texte auf Deutsch, kurz und für Einsteiger verständlich. Felder:
+"name": einprägsamer Titel mit 2 bis 4 Wörtern, der Spielart und Stimmung widerspiegelt (z. B. "Sanfter Regen in Moll"),
+"stimmung": Emotion in 1 bis 2 Wörtern,
+"spielart": Spielweise in 1 bis 3 Wörtern (z. B. Fingerpicking, Strumming, Lead-Melodie),
+"tonart": Tonart/Skala,
+"tempo_bpm": Zahl,
+"akkorde": Liste der Akkorde in Spielreihenfolge, je {"name":"Am","bunde":[6 Zahlen von tiefer E- bis hoher e-Saite; -1 = nicht spielen, 0 = leer, sonst Bundnummer],"finger":[6 Zahlen, 0 = kein Finger, 1 = Zeigefinger bis 4 = kleiner Finger]}. Leere Liste, falls keine Akkorde gespielt werden,
+"ablauf": Liste mit Schritten zum Nachspielen in Reihenfolge (Anschlag, Rhythmus, Wechsel),
+"besonderheiten": Liste (Techniken wie Hammer-on, Slide, Bending, Vibrato, Dämpfen),
+"tipps": Liste mit Übungstipps.
+Automatisch erkannte Töne (einstimmig, mit Konfidenz, können falsch sein, korrigiere sie bei Bedarf): ${found}
+${pcHint}`;
 
     const model = ls.get("gmodel") || "gemini-2.5-flash";
     const controller = new AbortController();
@@ -1139,7 +1140,7 @@ function makeTab(ns) {
     const part = cols.slice(i, i + 10);
     out += LAB.map((l, s) =>
       l + "|" + part.map(c => (c && c.s === s ? ("-" + c.f).padEnd(3, "-") : "---")).join("") + "|"
-    ).join("\\n") + "\\n\\n";
+    ).join("\n") + "\\n\\n";
   }
   return out.trim();
 }
@@ -1247,7 +1248,7 @@ function aiParts(a) {
     .join("");
   const top = '<div class="tags">' + tags + '</div>' +
     (a.akkorde && a.akkorde.length
-      ? "<h3>Akkorde in Reihenfolge</h3><div class=\\"chords\\">" + a.akkorde.map(chordSvg).join("") + "</div>"
+      ? "<h3>Akkorde in Reihenfolge</h3><div class=\"chords\">" + a.akkorde.map(chordSvg).join("") + "</div>"
       : "");
   const bot =
     (li(a.ablauf) ? "<h3>So spielst du es nach</h3><ol>" + li(a.ablauf) + "</ol>" : "") +
@@ -1262,8 +1263,8 @@ function aiText(a) {
     a.name,
     [a.stimmung, a.spielart, a.tonart, a.tempo_bpm && a.tempo_bpm + " BPM"].filter(Boolean).join(", "),
     (a.akkorde || []).map(c => c.name + " (" + (c.bunde || []).map(n => (n < 0 ? "x" : n)).join("-") + ")").join("  "),
-    (a.ablauf || []).map((t, i) => (i + 1) + ". " + t).join("\\n"),
-    (a.tipps || []).join("\\n")
+    (a.ablauf || []).map((t, i) => (i + 1) + ". " + t).join("\n"),
+    (a.tipps || []).join("\n")
   ].filter(Boolean).join("\\n\\n");
 }
 
