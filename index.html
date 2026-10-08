@@ -33,6 +33,20 @@ pre{background:#fff;border:1px solid var(--line);border-radius:6px;padding:10px;
 .ai{white-space:pre-wrap;margin-top:10px;padding:10px;border-left:4px solid var(--brass);background:#fff;font-size:15px}
 #msg{min-height:22px;text-align:center;color:var(--red);font-size:14px;margin-bottom:8px}
 .empty{text-align:center;color:#51666E;padding:24px}
+
+h3{margin:14px 0 6px;font:600 16px Georgia,serif}
+.hint{margin:0 0 6px;font-size:13px;color:#51666E}
+.tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
+.tags span{background:var(--ink);color:#fff;border-radius:14px;padding:3px 11px;font-size:13px}
+.chords{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px}
+.chords svg{flex:none;background:#fff;border:1px solid var(--line);border-radius:6px}
+.tabs svg{display:block;width:100%;max-width:360px;background:#fff;border:1px solid var(--line);border-radius:6px;margin-bottom:8px}
+.gl{stroke:#8FA1A7;stroke-width:1}.nut{stroke:var(--ink);stroke-width:4}
+.mk{font:11px system-ui,sans-serif;fill:#51666E}.cn{font:700 13px Georgia,serif;fill:var(--ink)}
+.op{fill:none;stroke:var(--ink);stroke-width:1.2}
+.dot,.tb{fill:var(--teal)}.tn,.fn{font:700 10px system-ui,sans-serif;fill:#fff}
+.du{fill:var(--brass)}
+ol,ul{margin:0;padding-left:22px}li{margin-bottom:4px}
 </style></head><body>
 <header><h1>Gitarren-Notizbuch</h1><p>Aufnehmen, speichern, analysieren, nachspielen.</p></header>
 <main>
@@ -79,7 +93,7 @@ $('#recBtn').onclick=async()=>{
 };
 async function finish(blob){
   const c={id:Date.now(),name:'Stück vom '+new Date().toLocaleString('de-DE',{dateStyle:'short',timeStyle:'short'}),blob,notes:null,ai:null};
-  await put(c);await render();await analyze(c.id);
+  await put(c);await render();await analyze(c.id);await askGemini(c.id);
 }
 
 /* Audio dekodieren */
@@ -120,13 +134,16 @@ function detect(x){
 
 /* Tabs (Standardstimmung, Töne -> Saite/Bund) */
 const OPEN=[64,59,55,50,45,40],LAB=['e','B','G','D','A','E'];
-function makeTab(ns){
+function tabCols(ns){
   let prev=null;
-  const cols=ns.map(n=>{
+  return ns.map(n=>{
     let best=null;
     OPEN.forEach((o,s)=>{const f=n.m-o;if(f>=0&&f<=15){const sc=prev===null?f:Math.abs(f-prev)+f*0.3;if(!best||sc<best.sc)best={s,f,sc}}});
     if(best)prev=best.f;return best;
   });
+}
+function makeTab(ns){
+  const cols=tabCols(ns);
   let out='';
   for(let i=0;i<cols.length;i+=10){
     const part=cols.slice(i,i+10);
@@ -158,15 +175,74 @@ async function askGemini(id){
     const x=await decode(c.blob);
     const b64=await new Promise(r=>{const f=new FileReader();f.onload=()=>r(f.result.split(',')[1]);f.readAsDataURL(new Blob([toWav(x)],{type:'audio/wav'}))});
     const found=(c.notes||[]).map(n=>nn(n.m)).join(' ')||'keine';
-    const prompt=`Du bist Gitarrenlehrer. Analysiere diese kurze Gitarrenaufnahme und antworte auf Deutsch, knapp, in diesen Abschnitten: Tonart und Skala; Tempo und Rhythmus; Akkorde oder Töne; Spieltechniken (Hammer-on, Pull-off, Bending, Slide, Vibrato, Anschlag); Besonderheiten; Tipps zum Nachspielen (Lage, Griffe, Stimmung). Automatisch erkannte Töne (können falsch sein, korrigiere sie bei Bedarf): ${found}`;
+    const prompt=`Du bist ein erfahrener Gitarrenlehrer. Analysiere diese Aufnahme eines kurzen Gitarrenstücks. Gib NUR gültiges JSON zurück (kein Markdown). Alle Texte auf Deutsch, kurz und für Einsteiger verständlich. Felder:
+"name": einprägsamer Titel mit 2 bis 4 Wörtern, der Spielart und Stimmung widerspiegelt (z. B. "Sanfter Regen in Moll"),
+"stimmung": Emotion in 1 bis 2 Wörtern,
+"spielart": Spielweise in 1 bis 3 Wörtern (z. B. Fingerpicking, Strumming, Lead-Melodie),
+"tonart": Tonart/Skala,
+"tempo_bpm": Zahl,
+"akkorde": Liste der Akkorde in Spielreihenfolge, je {"name":"Am","bunde":[6 Zahlen von tiefer E- bis hoher e-Saite; -1 = nicht spielen, 0 = leer, sonst Bundnummer],"finger":[6 Zahlen, 0 = kein Finger, 1 = Zeigefinger bis 4 = kleiner Finger]}. Leere Liste, falls keine Akkorde gespielt werden,
+"ablauf": Liste mit Schritten zum Nachspielen in Reihenfolge (Anschlag, Rhythmus, Wechsel),
+"besonderheiten": Liste (Techniken wie Hammer-on, Slide, Bending, Vibrato, Dämpfen),
+"tipps": Liste mit Übungstipps.
+Automatisch erkannte Töne (einstimmig, können falsch sein, korrigiere sie bei Bedarf): ${found}`;
     const model=ls.get('gmodel')||'gemini-2.5-flash';
-    const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':key},body:JSON.stringify({contents:[{parts:[{text:prompt},{inline_data:{mime_type:'audio/wav',data:b64}}]}]})});
+    const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':key},body:JSON.stringify({contents:[{parts:[{text:prompt},{inline_data:{mime_type:'audio/wav',data:b64}}]}],generationConfig:{responseMimeType:'application/json',temperature:0.7}})});
     const j=await r.json();
     if(!r.ok)throw new Error(j.error&&j.error.message||r.status);
-    c.ai=j.candidates[0].content.parts.map(p=>p.text||'').join('');
+    const txt=j.candidates[0].content.parts.map(p=>p.text||'').join('').replace(/```json|```/g,'').trim();
+    c.ai=JSON.parse(txt);
+    if(c.ai.name&&!c.renamed)c.name=String(c.ai.name).slice(0,60);
     await put(c);msg('');
   }catch(e){msg('Gemini-Fehler: '+e.message)}
   await render();
+}
+
+/* Visuelle Darstellung */
+function chordSvg(c){
+  const f=c.bunde||[],fi=c.finger||[],pos=f.filter(n=>n>0),max=Math.max(0,...pos),min=pos.length?Math.min(...pos):1,base=max>4?min:1;
+  let s=`<svg viewBox="0 0 90 114" width="90" role="img" aria-label="Akkord ${esc(String(c.name||''))}"><text x="45" y="12" text-anchor="middle" class="cn">${esc(String(c.name||''))}</text>`;
+  for(let j=0;j<=5;j++)s+=`<line x1="14" y1="${32+j*16}" x2="74" y2="${32+j*16}" class="${j===0&&base===1?'nut':'gl'}"/>`;
+  for(let i=0;i<6;i++){
+    const x=14+i*12;s+=`<line x1="${x}" y1="32" x2="${x}" y2="112" class="gl"/>`;
+    if(f[i]===-1)s+=`<text x="${x}" y="27" text-anchor="middle" class="mk">×</text>`;
+    else if(f[i]===0)s+=`<circle cx="${x}" cy="23" r="3.2" class="op"/>`;
+    else if(f[i]>0){
+      const y=32+(f[i]-base)*16+8;
+      if(f[i]-base<5)s+=`<circle cx="${x}" cy="${y}" r="5.5" class="dot"/>`+(fi[i]>0?`<text x="${x}" y="${y+3.5}" text-anchor="middle" class="fn">${fi[i]}</text>`:'');
+    }
+  }
+  if(base>1)s+=`<text x="78" y="${32+8+4}" class="mk">${base}.</text>`;
+  return s+'</svg>';
+}
+function tabSvg(ns){
+  const cols=tabCols(ns),per=8,cw=36,L=22,W=L+per*cw+6,rows=[];
+  for(let i=0;i<cols.length;i+=per){
+    const part=cols.slice(i,i+per),w=L+part.length*cw+2;
+    let s=`<svg viewBox="0 0 ${W} 116" role="img" aria-label="Tabulatur">`;
+    LAB.forEach((l,k)=>{const y=12+k*15;s+=`<text x="5" y="${y+4}" class="mk">${l}</text><line x1="${L}" y1="${y}" x2="${w}" y2="${y}" class="gl"/>`});
+    part.forEach((c,j)=>{
+      const x=L+j*cw+cw/2,n=ns[i+j];
+      if(c){const y=12+c.s*15;s+=`<circle cx="${x}" cy="${y}" r="7.2" class="tb"/><text x="${x}" y="${y+3.6}" text-anchor="middle" class="tn">${c.f}</text>`}
+      const bw=Math.min(cw-6,Math.max(6,n.d*40));
+      s+=`<rect x="${x-bw/2}" y="98" width="${bw}" height="3" rx="1.5" class="du"/><text x="${x}" y="112" text-anchor="middle" class="mk">${nn(n.m)}</text>`;
+    });
+    rows.push(s+'</svg>');
+  }
+  return `<div class="tabs">${rows.join('')}</div>`;
+}
+const li=x=>Array.isArray(x)&&x.length?x.map(t=>`<li>${esc(String(t))}</li>`).join(''):'';
+function aiParts(a){
+  if(!a)return['',''];
+  if(typeof a==='string')return['',`<div class="ai">${esc(a)}</div>`];
+  const tags=[a.stimmung,a.spielart,a.tonart,a.tempo_bpm?a.tempo_bpm+' BPM':''].filter(Boolean).map(t=>`<span>${esc(String(t))}</span>`).join('');
+  const top=`<div class="tags">${tags}</div>`+(a.akkorde&&a.akkorde.length?`<h3>Akkorde in Reihenfolge</h3><div class="chords">${a.akkorde.map(chordSvg).join('')}</div>`:'');
+  const bot=(li(a.ablauf)?`<h3>So spielst du es nach</h3><ol>${li(a.ablauf)}</ol>`:'')+(li(a.besonderheiten)?`<h3>Besonderheiten</h3><ul>${li(a.besonderheiten)}</ul>`:'')+(li(a.tipps)?`<h3>Tipps</h3><ul>${li(a.tipps)}</ul>`:'');
+  return[top,bot];
+}
+function aiText(a){
+  if(!a)return'';if(typeof a==='string')return a;
+  return[a.name,[a.stimmung,a.spielart,a.tonart,a.tempo_bpm&&a.tempo_bpm+' BPM'].filter(Boolean).join(', '),(a.akkorde||[]).map(c=>c.name+' ('+(c.bunde||[]).map(n=>n<0?'x':n).join('-')+')').join('  '),(a.ablauf||[]).map((t,i)=>(i+1)+'. '+t).join('\n'),(a.tipps||[]).join('\n')].filter(Boolean).join('\n\n');
 }
 
 /* Anzeige */
@@ -184,13 +260,14 @@ async function render(){
       <audio controls src="${u}"></audio>
       <div class="btns">
         <button class="b" data-a="notes">Töne neu erkennen</button>
-        <button class="b p" data-a="ai">Mit Gemini analysieren</button>
+        <button class="b p" data-a="ai">Neu analysieren (Gemini)</button>
         <button class="b" data-a="copy">Kopieren</button>
         <button class="b d" data-a="del">Löschen</button>
       </div>
-      <pre>${esc(notes)}</pre>
-      ${showTab&&c.notes&&c.notes.length?`<pre>${esc(makeTab(c.notes))}</pre>`:''}
-      ${c.ai?`<div class="ai">${esc(c.ai)}</div>`:''}
+      ${aiParts(c.ai)[0]}
+      ${showTab&&c.notes&&c.notes.length?`<h3>Tabulatur</h3><p class="hint">Zahl im Kreis = Bund, Zeile = Saite (unten tiefes E). Balken unter den Linien = Tonlänge.</p>${tabSvg(c.notes)}`:''}
+      ${aiParts(c.ai)[1]}
+      <div class="meta">Erkannte Töne: ${esc(notes)}</div>
     </article>`}).join(''):'<p class="empty">Noch keine Aufnahmen. Tippe auf den Knopf und spiel los.</p>';
 }
 $('#list').addEventListener('click',async e=>{
@@ -201,13 +278,13 @@ $('#list').addEventListener('click',async e=>{
   else if(a==='del'){if(confirm('Aufnahme löschen?')){await del(id);render()}}
   else if(a==='copy'){
     const c=(await getAll()).find(k=>k.id===id);
-    const t=[c.name,(c.notes||[]).map(n=>nn(n.m)).join(' '),$('#tabOpt').checked&&c.notes?makeTab(c.notes):'',c.ai||''].filter(Boolean).join('\n\n');
+    const t=[c.name,(c.notes||[]).map(n=>nn(n.m)).join(' '),$('#tabOpt').checked&&c.notes?makeTab(c.notes):'',aiText(c.ai)].filter(Boolean).join('\n\n');
     try{await navigator.clipboard.writeText(t);msg('Kopiert.')}catch(err){msg('Kopieren nicht möglich.')}
   }
 });
 $('#list').addEventListener('change',async e=>{
   if(!e.target.classList.contains('name'))return;
-  const id=+e.target.closest('.clip').dataset.id,c=(await getAll()).find(k=>k.id===id);c.name=e.target.value;await put(c);
+  const id=+e.target.closest('.clip').dataset.id,c=(await getAll()).find(k=>k.id===id);c.name=e.target.value;c.renamed=true;await put(c);
 });
 $('#tabOpt').checked=ls.get('tabs')!=='0';
 $('#tabOpt').onchange=()=>{ls.set('tabs',$('#tabOpt').checked?'1':'0');render()};
